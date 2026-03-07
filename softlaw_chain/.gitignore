@@ -1,0 +1,19 @@
+# Rust directories
+**/target
+
+# MacOS
+**/.DS_Store
+
+# Node
+**/node_modules
+
+# Code Editors / IDEs
+.vscode
+.idea
+
+# Binaries
+**/bin/
+
+/data
+/para-4528-genesis-state.txt
+para-4528-wasm.txt

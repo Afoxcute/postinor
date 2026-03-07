@@ -1,0 +1,19 @@
+Parties
+1. Licensor (Wallet)
+2. Licensee (Wallet)
+
+
+
+Clauses
+1. Object (Nft -License Id, Hash- vs rewards)
+2. Price and Payment
+3. Period of Time
+4. Exclusivity (Location)
+3. Purchase / Rent (Rewards)
+4. Performance (# of sales per month)
+5. Breach of Contract
+6. Jurisdiction (applicable law, tribunal, location).
+
+
+Licensor Wallet
+Licensee Wallet
