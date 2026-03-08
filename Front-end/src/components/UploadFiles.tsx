@@ -2,6 +2,7 @@ import React, { useState, ChangeEvent, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
 
 import uploadFilePinata from '../utils/pinataPin';
+import { getIpfsUrl } from '@/utils/ipfs';
 import { useInnovationContext } from '@/context/innovation';
 
 interface FileUploadResult {
@@ -68,11 +69,8 @@ const UploadMultipleFilesToIPFS: React.FC<FileUploadResult> = ({className, IpfsH
         // Filter out undefined values
         const validImageHashes = imageHashes.filter((hash): hash is string => hash !== undefined);
 
-        // Create url for images
-        // const imageUrls = validImageHashes.map(hash => `https://harlequin-quiet-smelt-978.mypinata.cloud/ipfs/${hash}`);
-        const imageUrls = validImageHashes.map(hash => `${process.env.NEXT_PUBLIC_GATEWAY} ${hash}`);
-        
-        // https://salmon-urgent-sawfish-507.mypinata.cloud/ipfs/QmQXLqaZQQML2tdqsx236n1mEszz7kjApPqckS62dBexQD
+        // Create url for images using public IPFS gateway
+        const imageUrls = validImageHashes.map(hash => getIpfsUrl(hash));
 
         // Json with all the urls
         const imagesMetadata = { imageUrls };
@@ -85,7 +83,10 @@ const UploadMultipleFilesToIPFS: React.FC<FileUploadResult> = ({className, IpfsH
 
         // get hash from json
         const metadataCid = ipfsMetadata.IpfsHash;
-        const metadataUrl = (`${process.env.NEXT_PUBLIC_GATEWAY} ${metadataCid}`)
+        if (!metadataCid) {
+          throw new Error("Failed to upload metadata to IPFS");
+        }
+        const metadataUrl = getIpfsUrl(metadataCid);
         console.log("CID del JSON con todos los enlaces de imágenes:", metadataUrl);
 
         // save json of hash

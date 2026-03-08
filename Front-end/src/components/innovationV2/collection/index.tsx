@@ -8,6 +8,7 @@ import VariousTypesButton from "../../VariousTypesButton";
 import MaxWidthWrapper from "../../MaxWidhWrapper";
 import { useInnovationContext } from "@/context/innovation";
 import uploadFilePinata from "@/utils/pinataPin";
+import { getIpfsUrl } from "@/utils/ipfs";
 import Loading from "@/components/Loading";
 import { ChainSelector } from "./chainSelector";
 import  Image  from 'next/image'
@@ -111,7 +112,10 @@ export default function CollectionPage() {
       });
 
       const metadataCid = await uploadFilePinata(metadataFile);
-      const metadataUrl = `https://harlequin-quiet-smelt-978.mypinata.cloud/ipfs/${metadataCid}`;
+      if (!metadataCid?.IpfsHash) {
+        throw new Error("Failed to upload metadata to IPFS");
+      }
+      const metadataUrl = getIpfsUrl(metadataCid.IpfsHash);
       console.log(
         "CID del JSON con todos los enlaces de imágenes:",
         metadataUrl

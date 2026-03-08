@@ -7,6 +7,7 @@ import { useInnovationContext } from "@/context/innovation";
 import ConfirmationModal from "./confirmation";
 import UploadMultipleFilesToIPFS from "@/components/UploadFiles";
 import uploadFilePinata from "@/utils/pinataPin";
+import { getIpfsUrl } from "@/utils/ipfs";
 import { useToast } from "@/hooks/use-toast";
 import Loading from "@/components/Loading";
 
@@ -99,11 +100,8 @@ export default function IpDetails() {
         (hash): hash is string => hash !== undefined
       );
 
-      // Create url for images
-      const imageUrls = validImageHashes.map(
-        (hash) =>
-          `https://harlequin-quiet-smelt-978.mypinata.cloud/ipfs/${hash}`
-      );
+      // Create url for images using public IPFS gateway
+      const imageUrls = validImageHashes.map((hash) => getIpfsUrl(hash));
 
       // Json with all the urls
       const imagesMetadata = { imageUrls };
@@ -122,7 +120,10 @@ export default function IpDetails() {
 
       // get hash from json
       const metadataCid = ipfsMetadata.IpfsHash;
-      const metadataUrl = `https://harlequin-quiet-smelt-978.mypinata.cloud/ipfs/${metadataCid}`;
+      if (!metadataCid) {
+        throw new Error("Failed to upload metadata to IPFS");
+      }
+      const metadataUrl = getIpfsUrl(metadataCid);
       console.log(
         "CID del JSON con todos los enlaces de imágenes:",
         metadataUrl
@@ -154,8 +155,10 @@ export default function IpDetails() {
 
       // get hash from json
       const metadataCid2 = ipfsMetadata2.IpfsHash;
-
-      const metadataUrl2 = `https://harlequin-quiet-smelt-978.mypinata.cloud/ipfs/${metadataCid}`;
+      if (!metadataCid2) {
+        throw new Error("Failed to upload metadata to IPFS");
+      }
+      const metadataUrl2 = getIpfsUrl(metadataCid2);
       console.log(
         "CID del JSON con todos los enlaces de imágenes:",
         metadataUrl
@@ -248,7 +251,7 @@ export default function IpDetails() {
       // get hash from json
       const metadataCid = ipfsMetadata.IpfsHash;
 
-      const metadataUrl = `https://harlequin-quiet-smelt-978.mypinata.cloud/ipfs/${metadataCid}`;
+      const metadataUrl = getIpfsUrl(metadataCid);
       console.log(
         "CID del JSON con todos los enlaces de imágenes:",
         metadataUrl
