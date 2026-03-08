@@ -38,7 +38,7 @@ Combining legal principles with blockchain technology, we offer a Smart IP Licen
 3. Build the chain:
    pop build --release
 4. Run the chain:
-   pop up parachain -f network.toml
+   pop up network network.toml
 5. Interact with softlaw chain clicking on the collator link.
 
 ### Interact with the Intellectual Property Pallet through the provided UI.
