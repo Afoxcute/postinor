@@ -4,6 +4,9 @@ A blockchain-based intellectual property management system supporting NFT mintin
 
 ## 📋 Overview
 
+
+
+
 The IP Pallet enables comprehensive intellectual property rights management through NFTs with support for:
 
 - License and purchase contract creation
