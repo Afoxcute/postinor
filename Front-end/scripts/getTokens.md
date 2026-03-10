@@ -63,3 +63,4 @@ You can check your balance in:
 - **Pre-funded Amount**: 1,152,921,504,606,846,976 SLAW per dev account
 - **Network**: Local Testnet (para_id: 2000)
 
+

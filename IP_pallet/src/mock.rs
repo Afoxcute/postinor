@@ -30,6 +30,8 @@ parameter_types! {
     pub const MaxReserves: u32 = 50;
 }
 
+
+// view   of pallet balance
 impl pallet_balances::Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type WeightInfo = ();
@@ -46,6 +48,7 @@ impl pallet_balances::Config for Test {
     type RuntimeFreezeReason = ();
 }
 
+//
 impl system::Config for Test {
     type BaseCallFilter = frame_support::traits::Everything;
     type BlockWeights = ();
