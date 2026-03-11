@@ -262,7 +262,7 @@ export function LicenseCreationForm({
                 >
                   <div className="text-left ">
                     <TypesComponent
-                      text="Recurring Payment"
+                      text="Periodic Payment"
                       className="font-semibold"
                     />
                     <p className="text-sm opacity-70">
@@ -271,7 +271,7 @@ export function LicenseCreationForm({
                     </p>
                   </div>
                 </Button>
-                {/* Recurring payment field will only show when selected */}
+                {/* Periodic payment field will only show when selected */}
                 {formData.paymentType === "Periodic" && (
                   <div className="space-y-2">
                     <div className="flex gap-4">
@@ -279,10 +279,7 @@ export function LicenseCreationForm({
                         type="button"
                         onClick={() =>
                           handleInputChange({
-                            periodicPayment: {
-                              ...formData.periodicPayment,
-                              interval: "Monthly",
-                            },
+                            periodicPayment: { interval: "Monthly" },
                           })
                         }
                         className={`${
@@ -297,10 +294,7 @@ export function LicenseCreationForm({
                         type="button"
                         onClick={() =>
                           handleInputChange({
-                            periodicPayment: {
-                              ...formData.periodicPayment,
-                              interval: "Quarterly",
-                            },
+                            periodicPayment: { interval: "Quarterly" },
                           })
                         }
                         className={`${
@@ -315,10 +309,7 @@ export function LicenseCreationForm({
                         type="button"
                         onClick={() =>
                           handleInputChange({
-                            periodicPayment: {
-                              ...formData.periodicPayment,
-                              interval: "Annually",
-                            },
+                            periodicPayment: { interval: "Annually" },
                           })
                         }
                         className={`${

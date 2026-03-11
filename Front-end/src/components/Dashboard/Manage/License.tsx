@@ -7,7 +7,6 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import TypesComponent from "@/components/TypesProps";
 import { getSoftlawApi } from "@/utils/softlaw/getApi";
-import OfferLicenseButton from "./ActionButtons/license/OfferLicenseButton";
 import InnovationProvider from "@/context/innovation";
 import AccountsProvider from "@/context/account";
 import { useAccountsContext } from "@/context/account";
@@ -59,24 +58,72 @@ function LicensingContent({ onDataChange }: ManageProps) {
   // Helper to format payment type
   const formatPaymentType = (paymentType: any): string => {
     if (!paymentType) return "Unknown";
-    if (paymentType.OneTime) {
+    
+    // Check for OneTime - can be a number or object with OneTime key
+    if (typeof paymentType === 'number' || typeof paymentType === 'string') {
       return "OneTime";
     }
+    
+    // Check for OneTime object structure
+    if (paymentType.OneTime !== undefined) {
+      return "OneTime";
+    }
+    
+    // Check for Periodic object structure
     if (paymentType.Periodic) {
       return "Periodic";
     }
+    
+    // Check for lowercase variants
+    if (paymentType.oneTime !== undefined) {
+      return "OneTime";
+    }
+    
+    if (paymentType.periodic) {
+      return "Periodic";
+    }
+    
+    // Log for debugging
+    console.log("Unknown payment type structure:", paymentType);
     return "Unknown";
   };
 
   // Helper to get payment amount
   const getPaymentAmount = (paymentType: any): string => {
     if (!paymentType) return "0";
-    if (paymentType.OneTime) {
+    
+    // If it's a direct number/string (OneTime)
+    if (typeof paymentType === 'number' || typeof paymentType === 'string') {
+      return String(paymentType);
+    }
+    
+    // Check for OneTime object structure
+    if (paymentType.OneTime !== undefined) {
       return String(paymentType.OneTime);
     }
-    if (paymentType.Periodic) {
-      return String(paymentType.Periodic.amount_per_payment || "0");
+    
+    if (paymentType.oneTime !== undefined) {
+      return String(paymentType.oneTime);
     }
+    
+    // Check for Periodic object structure
+    if (paymentType.Periodic) {
+      return String(
+        paymentType.Periodic.amountPerPayment || 
+        paymentType.Periodic.amount_per_payment || 
+        paymentType.Periodic.amountPerPayment || 
+        "0"
+      );
+    }
+    
+    if (paymentType.periodic) {
+      return String(
+        paymentType.periodic.amountPerPayment || 
+        paymentType.periodic.amount_per_payment || 
+        "0"
+      );
+    }
+    
     return "0";
   };
 
@@ -226,15 +273,24 @@ function LicensingContent({ onDataChange }: ManageProps) {
 
       // Convert chain licenses to UI format
       const uiLicenses: License[] = filteredLicenses.map((chainLicense, index) => {
+        // Debug: Log payment type structure
+        console.log(`License ${chainLicense.contractId || chainLicense.offerId} paymentType:`, chainLicense.paymentType);
+        console.log(`PaymentType type:`, typeof chainLicense.paymentType);
+        if (chainLicense.paymentType && typeof chainLicense.paymentType === 'object') {
+          console.log(`PaymentType keys:`, Object.keys(chainLicense.paymentType));
+        }
+        
         const paymentType = formatPaymentType(chainLicense.paymentType);
         const amount = getPaymentAmount(chainLicense.paymentType);
         const isOffer = chainLicense.isOffer || false;
-        const durationValue = parseInt(chainLicense.duration || "0");
+        const durationValue = parseInt(chainLicense.duration || "0", 10);
         
         // Map duration to "Permanent" or "Custom" based on value
         // If duration is 0 or very large, consider it Permanent
         const durationType: "Permanent" | "Custom" = 
           durationValue === 0 || durationValue > 1000000000 ? "Permanent" : "Custom";
+
+        console.log(`Parsed: paymentType=${paymentType}, amount=${amount}`);
 
         return {
           id: Date.now() + index,
@@ -565,9 +621,6 @@ function LicensingContent({ onDataChange }: ManageProps) {
                   </Card>
                 ))}
 
-            <div className="flex items-center justify-end text-center gap-4 mt-4">
-                  <OfferLicenseButton/>
-                </div>
               </div>
               
             </>
