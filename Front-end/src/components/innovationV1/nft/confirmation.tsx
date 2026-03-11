@@ -31,7 +31,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
   onClose,
   onEditPage,
 }) => {
-  const { chain, setChain, nftMetadataUrl } = useInnovationContext();
+  const { chain, setChain, nftMetadataUrl, nftMetadata } = useInnovationContext();
 
   const { toast } = useToast();
 
@@ -98,37 +98,104 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
       throw new Error("No selected account");
     }
 
-    // let type = await api.createType()
-
     const addr = selectedAccount.address;
-
     const injector = await web3FromAddress(addr);
-
     api.setSigner(injector.signer as any);
+
+    // Validate and prepare the actual values (not placeholder strings!)
+    const name = String(nftMetadata.name || '').trim();
+    const description = String(nftMetadata.description || '').trim();
+    const filingDate = String(nftMetadata.useDate || '').trim();
+    const jurisdiction = String(nftMetadata.registryNumber || '').trim();
+
+    // Validate all required fields
+    if (!name) {
+      toast({
+        title: "Error",
+        description: "Name is required",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!description) {
+      toast({
+        title: "Error",
+        description: "Description is required",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!filingDate) {
+      toast({
+        title: "Error",
+        description: "First Date Use is required",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (!jurisdiction) {
+      toast({
+        title: "Error",
+        description: "Registration Number is required",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Log the values being sent for debugging
+    console.log("Minting NFT with actual values:", {
+      name,
+      description,
+      filingDate,
+      jurisdiction,
+    });
 
     try {
       const tx = await api.tx.ipPallet
         .mintNft(
-          "nftMetadata.name",
-          "nftMetadata.description",
-          "nftMetadata.useDate",
-          "nftMetadata.registryNumber"
+          name,              // Actual value, not "nftMetadata.name"
+          description,       // Actual value, not "nftMetadata.description"
+          filingDate,        // Actual value, not "nftMetadata.useDate"
+          jurisdiction       // Actual value, not "nftMetadata.registryNumber"
         )
-        .signAndSend(addr);
+        .signAndSend(addr, { signer: injector.signer }, ({ status, events, dispatchError }: any) => {
+          if (dispatchError) {
+            console.error("Transaction error:", dispatchError);
+            toast({
+              title: "Transaction Failed",
+              description: dispatchError.toString(),
+              variant: "destructive",
+            });
+            return;
+          }
+
+          if (status.isInBlock || status.isFinalized) {
+            // Extract NFT ID from events
+            let nftId = null;
+            events.forEach(({ event }: any) => {
+              if (event.section === 'ipPallet' && event.method === 'NftMinted') {
+                nftId = event.data[0].toString();
+              }
+            });
+
+            toast({
+              title: "Proof of Innovation Created",
+              description: nftId 
+                ? `Successfully created proof of innovation ID ${nftId}`
+                : `Successfully created proof of innovation from Substrate Address: ${addr}`,
+              variant: "default",
+              className: "bg-white text-black border border-gray-200",
+            });
+          }
+        });
     } catch (e) {
-      console.log("error: ", e);
+      console.error("Minting error:", e);
+      toast({
+        title: "Error",
+        description: e instanceof Error ? e.message : "Failed to mint NFT",
+        variant: "destructive",
+      });
     }
-
-    await new Promise((resolve) => setTimeout(resolve, 10000));
-
-    console.log("Pasaron 10 segundos");
-
-    toast({
-      title: "Proof of Innovation Created",
-      description: `Successfully created proof of innovation id 16 from Substrate Address: ${addr}`,
-      variant: "default",
-      className: "bg-white text-black border border-gray-200",
-    });
   };
   return (
     <>

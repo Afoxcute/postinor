@@ -2,12 +2,17 @@
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import MyProducts from "./MyProducts/MyProducts";
-import Manage from "./Manage/Manage";
+import dynamic from "next/dynamic";
 import Activity from "./Activity/Activity";
 import IpSearch from "./IPSearch";
 import DashboardProvider, { useDashboardContext } from "@/context/dashboard";
 import { MagnifyingGlassIcon } from "@heroicons/react/24/solid";
 import MaxWidthWrapper from "../MaxWidhWrapper";
+
+// Dynamically import Manage component to prevent SSR issues with browser APIs
+const Manage = dynamic(() => import("./Manage/Manage"), {
+  ssr: false,
+});
 
 
 function DashboardContent() {

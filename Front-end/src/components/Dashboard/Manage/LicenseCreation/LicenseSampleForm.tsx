@@ -46,7 +46,16 @@ export function LicenseSampleForm({
 
     try {
       // Preparar argumentos para offerLicense
-      const nftId = formData.nftId;
+      const nftId = parseInt(formData.nftId, 10);
+      
+      if (isNaN(nftId)) {
+        toast({
+          title: "Error",
+          description: "Invalid NFT ID. Please enter a valid number.",
+          variant: "destructive",
+        });
+        return;
+      }
 
       // Manejar paymentType para OneTime y Periodic
       const paymentType =
@@ -65,8 +74,8 @@ export function LicenseSampleForm({
       const isExclusive = formData.licenseType === "Exclusive"; // booleano
       const duration =
         formData.durationType === "Permanent"
-          ? "0" // Usar "0" para duración permanente
-          : formData.customDuration?.value?.toString() || "0";
+          ? 0 // Use 0 for permanent duration
+          : parseInt(formData.customDuration?.value?.toString() || "0", 10);
 
       // Ejecutar extrinsic
       const unsub = await api.tx.ipPallet
@@ -74,7 +83,18 @@ export function LicenseSampleForm({
         .signAndSend(
           addr,
           { signer: injector.signer },
-          ({ status, events }) => {
+          ({ status, events, dispatchError }) => {
+            if (dispatchError) {
+              console.error("Transaction error:", dispatchError);
+              toast({
+                title: "Transaction Failed",
+                description: dispatchError.toString(),
+                variant: "destructive",
+              });
+              unsub();
+              return;
+            }
+
             if (status.isInBlock) {
               toast({
                 title: "Transaction Sent",
@@ -84,15 +104,30 @@ export function LicenseSampleForm({
             } else if (status.isFinalized) {
               toast({
                 title: "Transaction Finalized",
-                description: "License created successfully.",
+                description: "License offer created successfully.",
                 variant: "default",
               });
+              
+              // Check for LicenseOffered event
+              let offerCreated = false;
               events.forEach(({ event }) => {
+                if (event.section === 'ipPallet' && event.method === 'LicenseOffered') {
+                  offerCreated = true;
+                  console.log("License offer created:", event.data);
+                }
                 if (event.method === "ExtrinsicFailed") {
                   console.error("Transaction failed", event.data);
                 }
               });
+
               unsub(); // Desuscribirse del evento
+              
+              // Call onSubmit to trigger refresh in parent component
+              if (offerCreated) {
+                setTimeout(() => {
+                  onSubmit(formData);
+                }, 1000); // Wait 1 second for block to be processed
+              }
             }
           }
         );

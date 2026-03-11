@@ -58,15 +58,8 @@ export default function AcceptLicenseButton() {
                 ? { OneTime: { amount: 1000 } }  // Ajusta según tu estructura
                 : { Periodic: { amount: 100, period: 1000 } }; // Ajusta según tu estructura
 
-            // Llamar a la función del pallet
-            // const tx = api.tx.ipPallet.offerLicense(
-            //     nftId,              // NFT ID
-            //     paymentTypeParam,   // Payment Type
-            //     isExclusive,        // is_exclusive
-            //     duration           // duration in blocks
-            // );
-
-            const tx = api.tx.ipPallet.createLicense(
+            // Call the pallet function - use offerLicense (not createLicense)
+            const tx = api.tx.ipPallet.offerLicense(
                 nftId,              // NFT ID
                 paymentTypeParam,   // Payment Type
                 isExclusive,        // is_exclusive

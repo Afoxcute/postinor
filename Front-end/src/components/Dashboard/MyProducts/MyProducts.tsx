@@ -1,8 +1,7 @@
 "use client";
-import React, { useEffect, useState, useContext } from "react";
+import React, { useEffect, useState } from "react";
 import MaxWidthWrapper from "@/components/MaxWidhWrapper";
-// import { FormDataContext } from "../../ProofOfInnovation/FormDataContext";
-// import { useDashboardTapContext } from "@/context/dashboard";
+import { useContext } from "react";
 import Footer from "../../Footer";
 import Image from "next/image";
 import Link from "next/link";
@@ -17,18 +16,7 @@ interface MyProductsProps {
   onDataChange: (data: any) => void;
 }
 
-interface NFTMetadata {
-  name: string;
-  technicalName: string;
-  description: string;
-  type: string;
-  useDate: string;
-  registryNumber: string;
-  collectionId: number;
-  image: string[];
-}
-
-interface ChainNft {
+interface IPAsset {
   id: string;
   owner: string;
   name: string;
@@ -42,127 +30,199 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
     useDashboardContext();
 
   const { chain, setChain, nftMetadataUrl } = useInnovationContext();
+  const { selectedAccount } = useAccountsContext();
 
   const { formData, updateFormData } = useContext(FormDataContext);
 
-  const [nftData, setNftData] = useState<NFTMetadata>();
-  const { selectedAccount } = useAccountsContext();
-  const [chainNfts, setChainNfts] = useState<ChainNft[]>([]);
-  const [loadingChainNfts, setLoadingChainNfts] = useState(false);
-  const [chainNftsError, setChainNftsError] = useState<string | null>(null);
+  const [ipAssets, setIpAssets] = useState<IPAsset[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  async function fetchNFTData(url: string | null): Promise<NFTMetadata | null> {
-    if (!url) {
-      console.error("No URL provided");
-      return null;
-    }
-
-    try {
-      const response = await fetch(url);
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      const data = await response.json();
-      return data;
-    } catch (error) {
-      console.error("Error fetching NFT data:", error);
-      throw error;
-    }
-  }
-
-  // En el useEffect
-  useEffect(() => {
-    const loadNFTData = async () => {
-      try {
-        const data = await fetchNFTData(nftMetadataUrl);
-        if (data) {
-          setNftData(data);
+  // Helper function to convert BoundedVec<u8> to string
+  const bytesToString = (bytes: any): string => {
+    if (!bytes) return '';
+    
+    // If it's already a string
+    if (typeof bytes === 'string') {
+      // Check if it's a hex string (starts with 0x)
+      if (bytes.startsWith('0x')) {
+        try {
+          // Remove 0x prefix and convert hex to bytes
+          const hex = bytes.slice(2);
+          const byteArray = new Uint8Array(hex.match(/.{1,2}/g)?.map(byte => parseInt(byte, 16)) || []);
+          // Decode bytes to string
+          const decoded = new TextDecoder().decode(byteArray);
+          return decoded;
+        } catch (e) {
+          console.warn("Error decoding hex string:", e, bytes);
+          // If decoding fails, return the hex string as-is
+          return bytes;
         }
-      } catch (error) {
-        console.error("Error loading NFT data:", error);
       }
-    };
+      // If it's a regular string, return it
+      return bytes;
+    }
+    
+    // If it's an array of numbers (bytes)
+    if (Array.isArray(bytes)) {
+      try {
+        // Filter out any non-number values and convert
+        const validBytes = bytes.filter(b => typeof b === 'number' && b >= 0 && b <= 255);
+        if (validBytes.length > 0) {
+          return new TextDecoder().decode(new Uint8Array(validBytes));
+        }
+        // If array contains strings, join them
+        if (bytes.some(b => typeof b === 'string')) {
+          return bytes.join('');
+        }
+      } catch (e) {
+        console.warn("Error decoding bytes array:", e, bytes);
+      }
+    }
+    
+    // Try to convert to string
+    try {
+      return String(bytes);
+    } catch {
+      return '';
+    }
+  };
 
-    loadNFTData();
-  }, [nftMetadataUrl]); // Agregar
-
-  // Load on-chain IP NFTs owned by the connected account
+  // Fetch all IP assets from the chain
   useEffect(() => {
-    const loadChainNfts = async () => {
-      if (!selectedAccount?.address) {
-        setChainNfts([]);
-        return;
-      }
+    let isMounted = true; // Track if component is still mounted
+    let intervalId: NodeJS.Timeout | null = null;
+    let hasInitialLoad = false; // Track if we've done initial load
 
-      setLoadingChainNfts(true);
-      setChainNftsError(null);
+    const fetchIPAssets = async () => {
+      // Don't fetch if component is unmounted
+      if (!isMounted) return;
 
       try {
+        // Only show loading on initial load, not on refreshes
+        if (!hasInitialLoad) {
+          setLoading(true);
+        }
+        setError(null);
+        
         const api = await getSoftlawApi();
+        await api.isReady;
 
-        // Fetch all NFTs from ip_pallet storage
-        const entries = await (api.query as any).ipPallet.nfts.entries();
+        // Query all NFTs from the ipPallet
+        const rawNfts = await api.query.ipPallet.nfts.entries();
+        
+        console.log("Raw NFTs from chain:", rawNfts.length, "entries");
+        
+        // Only update state if component is still mounted
+        if (!isMounted) return;
 
-        const ownedNfts: ChainNft[] = entries
-          .map(([key, value]: any): ChainNft | null => {
-            try {
-              const id = key.args[0].toString();
-              const human = value.toHuman() as any;
+        if (rawNfts.length === 0) {
+          console.log("No NFTs found in storage");
+          // Only clear if this is initial load, otherwise keep existing data
+          if (!hasInitialLoad) {
+            setIpAssets([]);
+          }
+          setLoading(false);
+          hasInitialLoad = true;
+          return;
+        }
 
-              const owner = (human?.owner as string) || "";
+        // Parse the results
+        const parsedAssets: IPAsset[] = rawNfts.map(([key, value]) => {
+          const nftId = key.args[0].toString();
+          
+          // Get the raw value and convert to JSON
+          const nftData = value.toJSON() as any;
+          
+          // Try different possible field names
+          // Note: The Rust struct uses snake_case (filing_date, jurisdiction)
+          // but JSON might convert to camelCase (filingDate)
+          const owner = nftData.owner || nftData.Owner || '';
+          const name = bytesToString(nftData.name || nftData.Name || []);
+          const description = bytesToString(nftData.description || nftData.Description || []);
+          
+          // Check both snake_case and camelCase variants
+          const filingDateRaw = 
+            nftData.filing_date || 
+            nftData.filingDate || 
+            nftData.FilingDate ||
+            nftData['filing_date'] ||
+            [];
+          const filingDate = bytesToString(filingDateRaw);
+          
+          const jurisdictionRaw = 
+            nftData.jurisdiction || 
+            nftData.Jurisdiction ||
+            nftData['jurisdiction'] ||
+            [];
+          const jurisdiction = bytesToString(jurisdictionRaw);
 
-              if (owner !== selectedAccount.address) {
-                return null;
-              }
+          return {
+            id: nftId,
+            owner: owner,
+            name: name,
+            description: description,
+            filingDate: filingDate,
+            jurisdiction: jurisdiction,
+          };
+        });
 
-              const name =
-                (human?.name as string) ||
-                (Array.isArray(human?.name) ? human.name.join("") : "");
-              const description =
-                (human?.description as string) ||
-                (Array.isArray(human?.description)
-                  ? human.description.join("")
-                  : "");
-              const filingDate =
-                (human?.filing_date as string) ||
-                (human?.filingDate as string) ||
-                "";
-              const jurisdiction =
-                (human?.jurisdiction as string) ||
-                (Array.isArray(human?.jurisdiction)
-                  ? human.jurisdiction.join("")
-                  : "");
+        // Optionally filter by current user's account
+        let filteredAssets = parsedAssets;
+        if (selectedAccount?.address) {
+          filteredAssets = parsedAssets.filter(
+            (asset) => asset.owner === selectedAccount.address
+          );
+          console.log(`Filtered to ${filteredAssets.length} assets for account ${selectedAccount.address}`);
+        }
 
-              return {
-                id,
-                owner,
-                name,
-                description,
-                filingDate,
-                jurisdiction,
-              } as ChainNft;
-            } catch (e) {
-              console.error("Error parsing NFT entry:", e);
-              return null;
-            }
-          })
-          .filter((nft: ChainNft | null): nft is ChainNft => nft !== null);
-
-        setChainNfts(ownedNfts);
-      } catch (error) {
-        console.error("Error loading on-chain IP NFTs:", error);
-        setChainNftsError(
-          error instanceof Error
-            ? error.message
-            : "Failed to load on-chain IP assets"
-        );
+        // Only update state if component is still mounted and we have valid data
+        if (isMounted) {
+          setIpAssets(filteredAssets);
+          console.log("Final IP assets to display:", filteredAssets.length, "assets");
+          hasInitialLoad = true;
+        }
+      } catch (err) {
+        console.error("Error fetching IP assets:", err);
+        // Don't clear existing assets on error - keep showing what we have
+        // Only set error if we don't have any assets yet
+        if (!hasInitialLoad) {
+          setError(err instanceof Error ? err.message : "Failed to fetch IP assets");
+        } else {
+          // Log error but don't show it to user if we have cached data
+          console.warn("Error refreshing IP assets, keeping existing data:", err);
+        }
       } finally {
-        setLoadingChainNfts(false);
+        if (isMounted) {
+          setLoading(false);
+          hasInitialLoad = true;
+        }
       }
     };
 
-    loadChainNfts();
-  }, [selectedAccount]);
+    // Initial fetch
+    fetchIPAssets();
+
+    // Set up interval for refreshing (only if component is mounted)
+    intervalId = setInterval(() => {
+      if (isMounted) {
+        fetchIPAssets();
+      }
+    }, 15000); // Refresh every 15 seconds (increased from 10 to reduce load)
+
+    // Cleanup function
+    return () => {
+      isMounted = false;
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [selectedAccount?.address]); // Only re-run when account changes
+
+  const formatAddress = (address: string): string => {
+    if (!address) return "";
+    return `${address.slice(0, 6)}...${address.slice(-6)}`;
+  };
 
   return (
     <>
@@ -172,11 +232,12 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
             <TypesComponent className="min-[2000px]:text-3xl " text="All IPs" />
           </div>
           <div className="border h-[1px] w-[1000px] border-[#8A8A8A]" />
+          
           {/* my products section */}
           <div className="flex mr-10 w-full">
-            <div className="pt-[40px] flex  items-start content-start gap-[60px] self-stretch flex-wrap ">
+            <div className="pt-[40px] flex items-start content-start gap-[60px] self-stretch flex-wrap">
               <Link
-                className="flex items-center h-[403px] min-w-[320px] px-[16px] py-[8px] flex-col justify-center gap-[10px] rounded-[16px] bg-[#27251C]"
+                className="flex items-center h-[403px] min-w-[320px] px-[16px] py-[8px] flex-col justify-center gap-[10px] rounded-[16px] bg-[#27251C] hover:bg-[#3a3828] transition-colors"
                 href={"/innovation"}
               >
                 <Image
@@ -190,86 +251,94 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
                   Upload <span className="block">New IP</span>
                 </h1>
               </Link>
-            </div>
 
-            {nftMetadataUrl && (
-              <div className="border m-10 h-[1px] h-[450px] border-[#8A8A8A]" />
-            )}
-
-            {nftMetadataUrl && (
-              <div className="pt-[40px] flex  items-start content-start gap-[60px] self-stretch flex-wrap ">
-                <div className="flex items-center h-[403px] min-w-[320px] px-[16px] py-[8px] flex-col justify-center gap-[10px] rounded-[16px] bg-[#27251C]">
-                  <img
-                    src={"/images/solarPanel.png"}
-                    width={400}
-                    height={400}
-                    alt="Last minted IP"
-                  />
-                  <p>Name: Last minted IP (current session)</p>
-                  <p>Proof Of Innovation</p>
+              {/* Loading state */}
+              {loading && (
+                <div className="flex items-center justify-center h-[403px] min-w-[320px] px-[16px] py-[8px]">
+                  <p className="text-[#EFF4F6]">Loading IP assets...</p>
                 </div>
-              </div>
-            )}
-          </div>
-
-          {/* On-chain IP NFTs section */}
-          <div className="mt-10 w-full mr-10">
-            <TypesComponent
-              className="min-[2000px]:text-2xl "
-              text="On-chain IP Assets (Softlaw Chain)"
-            />
-            <div className="border h-[1px] w-[1000px] border-[#8A8A8A] mt-2" />
-
-            {loadingChainNfts && (
-              <p className="mt-4 text-sm text-gray-400">
-                Loading your on-chain IP assets...
-              </p>
-            )}
-
-            {chainNftsError && (
-              <p className="mt-4 text-sm text-red-400">{chainNftsError}</p>
-            )}
-
-            {!loadingChainNfts &&
-              !chainNftsError &&
-              chainNfts.length === 0 && (
-                <p className="mt-4 text-sm text-gray-400">
-                  No on-chain IP assets found for your connected account yet.
-                </p>
               )}
 
-            {chainNfts.length > 0 && (
-              <div className="pt-[24px] flex flex-wrap gap-[24px]">
-                {chainNfts.map((nft) => (
-                  <div
-                    key={nft.id}
-                    className="flex flex-col justify-between h-[260px] w-[320px] px-[16px] py-[16px] rounded-[16px] bg-[#27251C] border border-[#373737]"
-                  >
-                    <div>
-                      <p className="text-xs text-gray-400 mb-1">
-                        ID: {nft.id}
-                      </p>
-                      <h2 className="text-lg font-semibold mb-2">
-                        {nft.name || "Untitled IP"}
-                      </h2>
-                      <p className="text-sm text-gray-300 line-clamp-3 mb-2">
-                        {nft.description || "No description"}
-                      </p>
-                    </div>
-                    <div className="mt-2 text-xs text-gray-400 space-y-1">
-                      <p>
-                        <span className="font-semibold">Filing date:</span>{" "}
-                        {nft.filingDate || "N/A"}
-                      </p>
-                      <p>
-                        <span className="font-semibold">Jurisdiction:</span>{" "}
-                        {nft.jurisdiction || "N/A"}
-                      </p>
-                    </div>
+              {/* Error state */}
+              {error && (
+                <div className="flex items-center justify-center h-[403px] min-w-[320px] px-[16px] py-[8px] bg-red-900/20 rounded-[16px] border border-red-500">
+                  <p className="text-red-400">Error: {error}</p>
+                </div>
+              )}
+
+              {/* IP Assets List */}
+              {!loading && !error && ipAssets.length > 0 && (
+                <>
+                  <div className="border m-10 h-[1px] w-full border-[#8A8A8A]" />
+                  <div className="pt-[40px] flex items-start content-start gap-[60px] self-stretch flex-wrap w-full">
+                    {ipAssets.map((asset) => (
+                      <div
+                        key={asset.id}
+                        className="flex flex-col h-auto min-w-[320px] px-[16px] py-[16px] gap-[16px] rounded-[16px] bg-[#27251C] border border-[#373737] hover:border-yellow-500 transition-colors"
+                      >
+                        {/* NFT ID */}
+                        <div className="flex justify-between items-center">
+                          <span className="text-[#8A8A8A] text-sm">IP ID:</span>
+                          <span className="text-[#EFF4F6] font-semibold">#{asset.id}</span>
+                        </div>
+
+                        {/* Name */}
+                        <div className="flex flex-col gap-[4px]">
+                          <span className="text-[#8A8A8A] text-sm">Name:</span>
+                          <h3 className="text-[#EFF4F6] text-lg font-semibold">
+                            {asset.name || <span className="text-[#8A8A8A] italic">Not available</span>}
+                          </h3>
+                        </div>
+
+                        {/* Description */}
+                        <div className="flex flex-col gap-[4px]">
+                          <span className="text-[#8A8A8A] text-sm">Description:</span>
+                          <p className="text-[#EFF4F6] text-sm line-clamp-3">
+                            {asset.description || <span className="text-[#8A8A8A] italic">Not available</span>}
+                          </p>
+                        </div>
+
+                        {/* Filing Date */}
+                        <div className="flex justify-between items-center">
+                          <span className="text-[#8A8A8A] text-sm">Filing Date:</span>
+                          <span className="text-[#EFF4F6] text-sm">
+                            {asset.filingDate || <span className="text-[#8A8A8A] italic">Not available</span>}
+                          </span>
+                        </div>
+
+                        {/* Jurisdiction */}
+                        <div className="flex justify-between items-center">
+                          <span className="text-[#8A8A8A] text-sm">Jurisdiction:</span>
+                          <span className="text-[#EFF4F6] text-sm">
+                            {asset.jurisdiction || <span className="text-[#8A8A8A] italic">Not available</span>}
+                          </span>
+                        </div>
+
+                        {/* Owner */}
+                        <div className="flex justify-between items-center pt-[8px] border-t border-[#373737]">
+                          <span className="text-[#8A8A8A] text-sm">Owner:</span>
+                          <span className="text-[#EFF4F6] text-xs font-mono">{formatAddress(asset.owner)}</span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            )}
+                </>
+              )}
+
+              {/* Empty state */}
+              {!loading && !error && ipAssets.length === 0 && (
+                <>
+                  <div className="border m-10 h-[1px] w-full border-[#8A8A8A]" />
+                  <div className="pt-[40px] flex items-center justify-center min-w-[320px] px-[16px] py-[16px]">
+                    <p className="text-[#8A8A8A] text-lg">
+                      {selectedAccount 
+                        ? "No IP assets found for your account. Mint your first IP asset!"
+                        : "Connect your wallet to view your IP assets, or mint a new one."}
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
       </div>

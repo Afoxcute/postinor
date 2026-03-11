@@ -53,20 +53,21 @@ export default function OfferLicenseButton() {
             // Set signer
             api.setSigner(injector.signer as any);
 
-            // Crear el PaymentType según el enum
+            // Create PaymentType according to the pallet structure
+            // PaymentType::OneTime(Balance) or PaymentType::Periodic { amount_per_payment, total_payments, frequency }
+            // Note: In JS/TS, OneTime is just the amount value, Periodic is an object
             const paymentTypeParam = paymentType === PaymentType.OneTime 
-                ? { OneTime: { amount: 1000 } }  // Ajusta según tu estructura
-                : { Periodic: { amount: 100, period: 1000 } }; // Ajusta según tu estructura
+                ? { OneTime: 1000 }  // Single amount value for OneTime (matches Rust OneTime(Balance))
+                : { 
+                    Periodic: { 
+                      amountPerPayment: 100,  // amount_per_payment in Rust
+                      totalPayments: 10,      // total_payments in Rust
+                      frequency: 1000         // frequency in Rust
+                    } 
+                  };
 
-            // Llamar a la función del pallet
-            // const tx = api.tx.ipPallet.offerLicense(
-            //     nftId,              // NFT ID
-            //     paymentTypeParam,   // Payment Type
-            //     isExclusive,        // is_exclusive
-            //     duration           // duration in blocks
-            // );
-
-            const tx = api.tx.ipPallet.createLicense(
+            // Call the pallet function - use offerLicense (not createLicense)
+            const tx = api.tx.ipPallet.offerLicense(
                 nftId,              // NFT ID
                 paymentTypeParam,   // Payment Type
                 isExclusive,        // is_exclusive

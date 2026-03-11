@@ -30,22 +30,42 @@ export default function MintNftButton() {
     const injector = await web3FromAddress(addr);
     api.setSigner(injector.signer as any);
 
-    if (
-      !nftMetadata.name ||
-      !nftMetadata.description ||
-      !nftMetadata.useDate ||
-      !nftMetadata.registryNumber
-    ) {
-      throw new Error("Missing NFT metadata");
+    // Validate and prepare the values
+    const name = String(nftMetadata.name || '').trim();
+    const description = String(nftMetadata.description || '').trim();
+    // Map useDate to filing_date and registryNumber to jurisdiction
+    const filingDate = String(nftMetadata.useDate || '').trim();
+    const jurisdiction = String(nftMetadata.registryNumber || '').trim();
+
+    // Validate all required fields
+    if (!name) {
+      throw new Error("Name is required");
     }
+    if (!description) {
+      throw new Error("Description is required");
+    }
+    if (!filingDate) {
+      throw new Error("First Date Use (Filing Date) is required");
+    }
+    if (!jurisdiction) {
+      throw new Error("Registration Number (Jurisdiction) is required");
+    }
+
+    // Log the values being sent for debugging
+    console.log("Minting NFT with values:", {
+      name,
+      description,
+      filingDate,
+      jurisdiction,
+    });
 
     try {
       const txHash = await api.tx.ipPallet
         .mintNft(
-          nftMetadata.name,
-          nftMetadata.description,
-          nftMetadata.useDate,
-          nftMetadata.registryNumber
+          name,
+          description,
+          filingDate,
+          jurisdiction
         )
         .signAndSend(addr, { signer: injector.signer }, (result) => {
           if (result.status.isInBlock || result.status.isFinalized) {
