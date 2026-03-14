@@ -111,3 +111,6 @@ Payment Type: OneTime
 
 This means you're offering an exclusive license for NFT #1 for a one-time payment of 1000 SLAW tokens with a 10% royalty rate, and the license will never expire.
 
+
+
+

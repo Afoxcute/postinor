@@ -161,10 +161,16 @@ export default function IpDetails() {
       const metadataUrl2 = getIpfsUrl(metadataCid2);
       console.log(
         "CID del JSON con todos los enlaces de imágenes:",
-        metadataUrl
+        metadataUrl2
       );
       setMetadataHash(metadataCid2);
       setNftMetadataUrl(metadataUrl2);
+      
+      // Store pending metadata URL for later association with NFT ID
+      // This ensures the metadata URL persists even if context is lost
+      const { storePendingMetadata } = await import('@/utils/nftMetadataStorage');
+      storePendingMetadata(metadataUrl2);
+      console.log('Stored pending metadata URL from uploadImagesToIPFS:', metadataUrl2);
 
       return metadataCid2;
     } catch (error) {
@@ -237,6 +243,10 @@ export default function IpDetails() {
       );
       setMetadataHash(metadataCid);
       setNftMetadataUrl(metadataUrl);
+      
+      // Store pending metadata URL for later association with NFT ID
+      const { storePendingMetadata } = await import('@/utils/nftMetadataStorage');
+      storePendingMetadata(metadataUrl);
 
       return metadataCid;
     } catch (error) {

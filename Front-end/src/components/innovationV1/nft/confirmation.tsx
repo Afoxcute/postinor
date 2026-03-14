@@ -9,6 +9,8 @@ import { useAccountsContext } from "@/context/account";
 import { getSoftlawApi } from "@/utils/softlaw/getApi";
 import { web3Enable, web3FromAddress } from "@polkadot/extension-dapp";
 import { useToast } from "@/hooks/use-toast";
+import { storeNFTMetadata, getAndClearPendingMetadata, storePendingMetadata } from "@/utils/nftMetadataStorage";
+import { getIPFSGatewayURL } from "@/utils/ipfs";
 // import Footer from "../Footer";
 
 interface ConfirmationModalProps {
@@ -158,7 +160,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
           filingDate,        // Actual value, not "nftMetadata.useDate"
           jurisdiction       // Actual value, not "nftMetadata.registryNumber"
         )
-        .signAndSend(addr, { signer: injector.signer }, ({ status, events, dispatchError }: any) => {
+        .signAndSend(addr, { signer: injector.signer }, async ({ status, events, dispatchError }: any) => {
           if (dispatchError) {
             console.error("Transaction error:", dispatchError);
             toast({
@@ -172,11 +174,58 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
           if (status.isInBlock || status.isFinalized) {
             // Extract NFT ID from events
             let nftId = null;
+            console.log('Transaction events:', events);
             events.forEach(({ event }: any) => {
+              console.log('Event:', event.section, event.method, event.data);
               if (event.section === 'ipPallet' && event.method === 'NftMinted') {
                 nftId = event.data[0].toString();
+                console.log(`Found NftMinted event with NFT ID: ${nftId}`);
               }
             });
+
+            // If we didn't get NFT ID from events, query the chain to find the latest NFT
+            if (!nftId) {
+              console.log('NFT ID not found in events, querying chain...');
+              try {
+                const allNfts = await api.query.ipPallet.nfts.entries();
+                // Find the most recent NFT owned by this address
+                let latestNft: any = null;
+                let latestId = -1;
+                
+                allNfts.forEach(([key, value]) => {
+                  const id = parseInt(key.args[0].toString());
+                  const nftData = value.toJSON() as any;
+                  if (nftData.owner === addr && id > latestId) {
+                    latestId = id;
+                    latestNft = { id: id.toString(), data: nftData };
+                  }
+                });
+                
+                if (latestNft) {
+                  nftId = latestNft.id;
+                  console.log(`Found latest NFT ID from chain query: ${nftId}`);
+                }
+              } catch (err) {
+                console.error('Error querying chain for NFT ID:', err);
+              }
+            }
+
+            // Get metadata URL from context or pending storage
+            const metadataUrlToStore = nftMetadataUrl || getAndClearPendingMetadata();
+            
+            // Store metadata URL if available
+            if (nftId && metadataUrlToStore) {
+              console.log(`Storing metadata URL for NFT ${nftId}:`, metadataUrlToStore);
+              storeNFTMetadata(nftId, metadataUrlToStore);
+              console.log(`Successfully stored metadata URL for NFT ${nftId}`);
+            } else {
+              console.warn(`Cannot store metadata: nftId=${nftId}, metadataUrl=${metadataUrlToStore}`);
+              // If we have metadata URL but no NFT ID, keep it as pending
+              if (metadataUrlToStore && !nftId) {
+                storePendingMetadata(metadataUrlToStore, addr);
+                console.log('Kept metadata URL as pending for later association');
+              }
+            }
 
             toast({
               title: "Proof of Innovation Created",
@@ -371,9 +420,12 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
                           {nftData?.image || "No file uploaded"}
                         </p>
                         <div>
-                          {nftData?.image?.map((src, index) => (
-                            <img key={index} src={src} alt={`NFT ${index}`} />
-                          ))}
+                          {nftData?.image?.map((src, index) => {
+                            const normalizedSrc = getIPFSGatewayURL(src);
+                            return (
+                              <img key={index} src={normalizedSrc} alt={`NFT ${index}`} />
+                            );
+                          })}
                         </div>
                       </div>
 

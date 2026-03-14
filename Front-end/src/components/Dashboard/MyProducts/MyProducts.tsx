@@ -11,6 +11,8 @@ import TypesComponent from "@/components/TypesProps";
 import { useInnovationContext } from "@/context/innovation";
 import { useAccountsContext } from "@/context/account";
 import { getSoftlawApi } from "@/utils/softlaw/getApi";
+import { getNFTMetadataUrls, fetchNFTMetadata, getAndClearPendingMetadata, storePendingMetadata, storeNFTMetadata } from "@/utils/nftMetadataStorage";
+import { getIPFSGatewayURL } from "@/utils/ipfs";
 
 interface MyProductsProps {
   onDataChange: (data: any) => void;
@@ -23,6 +25,8 @@ interface IPAsset {
   description: string;
   filingDate: string;
   jurisdiction: string;
+  imageUrl?: string; // IPFS URL for the first image
+  images?: string[]; // All image URLs
 }
 
 export default function MyProducts({ onDataChange }: MyProductsProps) {
@@ -37,6 +41,7 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
   const [ipAssets, setIpAssets] = useState<IPAsset[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState<Record<string, boolean>>({});
 
   // Helper function to convert BoundedVec<u8> to string
   const bytesToString = (bytes: any): string => {
@@ -176,10 +181,98 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
           console.log(`Filtered to ${filteredAssets.length} assets for account ${selectedAccount.address}`);
         }
 
-        // Only update state if component is still mounted and we have valid data
-        if (isMounted) {
+        // Fetch metadata URLs and images for all assets
+        if (isMounted && filteredAssets.length > 0) {
+          // Get all metadata URLs at once
+          const nftIds = filteredAssets.map(asset => asset.id);
+          let metadataUrls = getNFTMetadataUrls(nftIds);
+          
+          // Check if there's a pending metadata URL that we can associate with an NFT
+          const pendingMetadataUrl = getAndClearPendingMetadata();
+          if (pendingMetadataUrl && nftIds.length > 0) {
+            // Try to associate pending metadata with the most recent NFT that doesn't have metadata
+            const nftWithoutMetadata = nftIds.find(id => !metadataUrls[id]);
+            if (nftWithoutMetadata) {
+              console.log(`Associating pending metadata with NFT ${nftWithoutMetadata}`);
+              storeNFTMetadata(nftWithoutMetadata, pendingMetadataUrl);
+              metadataUrls[nftWithoutMetadata] = pendingMetadataUrl;
+            } else {
+              // Keep it as pending if all NFTs already have metadata
+              storePendingMetadata(pendingMetadataUrl, selectedAccount?.address);
+            }
+          }
+          
+          console.log(`Found ${Object.keys(metadataUrls).length} metadata URLs for ${nftIds.length} NFTs:`, metadataUrls);
+          
+          // Fetch images for each asset
+          const assetsWithImages = await Promise.all(
+            filteredAssets.map(async (asset) => {
+              const metadataUrl = metadataUrls[asset.id];
+              if (!metadataUrl) {
+                console.log(`No metadata URL found for NFT ${asset.id} in localStorage`);
+                return asset; // Return asset without image if no metadata URL
+              }
+
+              try {
+                setImageLoading(prev => ({ ...prev, [asset.id]: true }));
+                console.log(`Fetching metadata for NFT ${asset.id} from:`, metadataUrl);
+                const metadata = await fetchNFTMetadata(metadataUrl);
+                console.log(`Metadata for NFT ${asset.id}:`, metadata);
+                
+                // Handle different metadata structures
+                let imageUrl: string | undefined;
+                let allImageUrls: string[] = [];
+                
+                if (metadata) {
+                  // Try different possible field names and structures
+                  if (metadata.image) {
+                    if (Array.isArray(metadata.image) && metadata.image.length > 0) {
+                      imageUrl = metadata.image[0];
+                      allImageUrls = metadata.image;
+                    } else if (typeof metadata.image === 'string' && metadata.image.length > 0) {
+                      imageUrl = metadata.image;
+                      allImageUrls = [metadata.image];
+                    }
+                  } else if ((metadata as any).imageUrls && Array.isArray((metadata as any).imageUrls) && (metadata as any).imageUrls.length > 0) {
+                    // Handle case where images are stored as imageUrls
+                    imageUrl = (metadata as any).imageUrls[0];
+                    allImageUrls = (metadata as any).imageUrls;
+                  } else if ((metadata as any).images && Array.isArray((metadata as any).images) && (metadata as any).images.length > 0) {
+                    // Handle case where images are stored as images
+                    imageUrl = (metadata as any).images[0];
+                    allImageUrls = (metadata as any).images;
+                  }
+                }
+                
+                if (imageUrl) {
+                  // Convert IPFS URLs to gateway URLs (handles ipfs://, /ipfs/ paths, etc.)
+                  const normalizedImageUrl = getIPFSGatewayURL(imageUrl);
+                  const normalizedAllImages = allImageUrls.map(url => getIPFSGatewayURL(url));
+                  
+                  console.log(`Found image URL for NFT ${asset.id}:`, imageUrl, '→ normalized:', normalizedImageUrl);
+                  return {
+                    ...asset,
+                    imageUrl: normalizedImageUrl,
+                    images: normalizedAllImages,
+                  };
+                } else {
+                  console.warn(`No image found in metadata for NFT ${asset.id}`);
+                }
+              } catch (err) {
+                console.error(`Error fetching image for NFT ${asset.id}:`, err);
+              } finally {
+                setImageLoading(prev => ({ ...prev, [asset.id]: false }));
+              }
+              
+              return asset;
+            })
+          );
+
+          setIpAssets(assetsWithImages);
+          console.log("Final IP assets to display:", assetsWithImages.length, "assets");
+          hasInitialLoad = true;
+        } else if (isMounted) {
           setIpAssets(filteredAssets);
-          console.log("Final IP assets to display:", filteredAssets.length, "assets");
           hasInitialLoad = true;
         }
       } catch (err) {
@@ -276,6 +369,38 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
                         key={asset.id}
                         className="flex flex-col h-auto min-w-[320px] px-[16px] py-[16px] gap-[16px] rounded-[16px] bg-[#27251C] border border-[#373737] hover:border-yellow-500 transition-colors"
                       >
+                        {/* Image */}
+                        {asset.imageUrl ? (
+                          <div className="w-full h-[200px] rounded-[12px] overflow-hidden bg-[#1C1A11] flex items-center justify-center border border-[#373737]">
+                            {imageLoading[asset.id] ? (
+                              <div className="text-[#8A8A8A] text-sm animate-pulse">Loading image...</div>
+                            ) : (
+                              <Image
+                                src={asset.imageUrl}
+                                alt={asset.name || `IP Asset ${asset.id}`}
+                                width={320}
+                                height={200}
+                                className="w-full h-full object-cover"
+                                unoptimized={true}
+                                onError={(e) => {
+                                  console.error(`Failed to load image for NFT ${asset.id}:`, asset.imageUrl);
+                                  // Show error message on error
+                                  const target = e.currentTarget;
+                                  target.style.display = 'none';
+                                  const parent = target.parentElement;
+                                  if (parent) {
+                                    parent.innerHTML = '<div class="text-[#8A8A8A] text-sm">Image failed to load</div>';
+                                  }
+                                }}
+                              />
+                            )}
+                          </div>
+                        ) : (
+                          <div className="w-full h-[50px] rounded-[12px] bg-[#1C1A11] flex items-center justify-center border border-[#373737]">
+                            <span className="text-[#8A8A8A] text-sm">No image metadata available</span>
+                          </div>
+                        )}
+
                         {/* NFT ID */}
                         <div className="flex justify-between items-center">
                           <span className="text-[#8A8A8A] text-sm">IP ID:</span>

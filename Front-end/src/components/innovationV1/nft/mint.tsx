@@ -4,6 +4,7 @@ import { useInnovationContext } from "@/context/innovation";
 import { useAccountsContext } from "@/context/account";
 import { web3Enable, web3FromAddress } from "@polkadot/extension-dapp";
 import { getSoftlawApi } from "@/utils/softlaw/getApi";
+import { storeNFTMetadata, getAndClearPendingMetadata, storePendingMetadata } from "@/utils/nftMetadataStorage";
 
 interface MintResult {
   collectionId: string;
@@ -13,7 +14,7 @@ interface MintResult {
 }
 
 export default function MintNftButton() {
-  const { nftMetadata, setLoading, loading } = useInnovationContext();
+  const { nftMetadata, setLoading, loading, nftMetadataUrl } = useInnovationContext();
 
   const { selectedAccount } = useAccountsContext();
   const { toast } = useToast();
@@ -67,11 +68,66 @@ export default function MintNftButton() {
           filingDate,
           jurisdiction
         )
-        .signAndSend(addr, { signer: injector.signer }, (result) => {
-          if (result.status.isInBlock || result.status.isFinalized) {
+        .signAndSend(addr, { signer: injector.signer }, async ({ status, events }) => {
+          if (status.isInBlock || status.isFinalized) {
             console.log(
-              `Transaction included at blockHash ${result.status.asInBlock}`
+              `Transaction included at blockHash ${status.asInBlock}`
             );
+            
+            // Extract NFT ID from events and store metadata URL
+            let nftId = null;
+            console.log('Transaction events:', events);
+            events.forEach(({ event }: any) => {
+              console.log('Event:', event.section, event.method, event.data);
+              if (event.section === 'ipPallet' && event.method === 'NftMinted') {
+                nftId = event.data[0].toString();
+                console.log(`Found NftMinted event with NFT ID: ${nftId}`);
+              }
+            });
+
+            // If we didn't get NFT ID from events, query the chain to find the latest NFT
+            if (!nftId) {
+              console.log('NFT ID not found in events, querying chain...');
+              try {
+                const allNfts = await api.query.ipPallet.nfts.entries();
+                // Find the most recent NFT owned by this address
+                let latestNft: any = null;
+                let latestId = -1;
+                
+                allNfts.forEach(([key, value]) => {
+                  const id = parseInt(key.args[0].toString());
+                  const nftData = value.toJSON() as any;
+                  if (nftData.owner === addr && id > latestId) {
+                    latestId = id;
+                    latestNft = { id: id.toString(), data: nftData };
+                  }
+                });
+                
+                if (latestNft) {
+                  nftId = latestNft.id;
+                  console.log(`Found latest NFT ID from chain query: ${nftId}`);
+                }
+              } catch (err) {
+                console.error('Error querying chain for NFT ID:', err);
+              }
+            }
+
+            // Get metadata URL from context or pending storage
+            const metadataUrlToStore = nftMetadataUrl || getAndClearPendingMetadata();
+            
+            // Store metadata URL if available
+            if (nftId && metadataUrlToStore) {
+              console.log(`Storing metadata URL for NFT ${nftId}:`, metadataUrlToStore);
+              storeNFTMetadata(nftId, metadataUrlToStore);
+              console.log(`Successfully stored metadata URL for NFT ${nftId}`);
+            } else {
+              console.warn(`Cannot store metadata: nftId=${nftId}, metadataUrl=${metadataUrlToStore}`);
+              // If we have metadata URL but no NFT ID, keep it as pending
+              if (metadataUrlToStore && !nftId) {
+                storePendingMetadata(metadataUrlToStore, addr);
+                console.log('Kept metadata URL as pending for later association');
+              }
+            }
           }
         });
 
