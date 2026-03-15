@@ -8,6 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getSoftlawApi } from "@/utils/softlaw/getApi";
 import { web3Enable, web3FromAddress } from "@polkadot/extension-dapp";
 import { useAccountsContext } from "@/context/account";
+import { storeLicenseRoyaltyRate } from "@/utils/licenseStorage";
 
 interface LicenseSampleFormProps {
   formData: LicenseFormData;
@@ -110,10 +111,17 @@ export function LicenseSampleForm({
               
               // Check for LicenseOffered event
               let offerCreated = false;
+              let offerId: string | null = null;
               events.forEach(({ event }) => {
                 if (event.section === 'ipPallet' && event.method === 'LicenseOffered') {
                   offerCreated = true;
+                  offerId = event.data[0].toString();
                   console.log("License offer created:", event.data);
+                  
+                  // Store royalty rate in localStorage with offer ID
+                  if (offerId && formData.royaltyrate) {
+                    storeLicenseRoyaltyRate(offerId, formData.royaltyrate);
+                  }
                 }
                 if (event.method === "ExtrinsicFailed") {
                   console.error("Transaction failed", event.data);

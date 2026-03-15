@@ -12,6 +12,7 @@ import AccountsProvider from "@/context/account";
 import { useAccountsContext } from "@/context/account";
 import { useToast } from "@/hooks/use-toast";
 import { web3Enable, web3FromAddress } from "@polkadot/extension-dapp";
+import { getLicenseRoyaltyRate, getLicenseRoyaltyRates } from "@/utils/licenseStorage";
 
 interface ManageProps {
   onDataChange?: (data: any) => void;
@@ -271,6 +272,11 @@ function LicensingContent({ onDataChange }: ManageProps) {
 
       console.log("Filtered licenses (contracts + offers):", filteredLicenses);
 
+      // Get all license IDs to fetch royalty rates in batch
+      const licenseIds = filteredLicenses.map(l => l.contractId || l.offerId).filter(Boolean) as string[];
+      const royaltyRates = getLicenseRoyaltyRates(licenseIds);
+      console.log("Retrieved royalty rates from localStorage:", royaltyRates);
+
       // Convert chain licenses to UI format
       const uiLicenses: License[] = filteredLicenses.map((chainLicense, index) => {
         // Debug: Log payment type structure
@@ -292,6 +298,10 @@ function LicensingContent({ onDataChange }: ManageProps) {
 
         console.log(`Parsed: paymentType=${paymentType}, amount=${amount}`);
 
+        // Get royalty rate from localStorage (by contract ID or offer ID)
+        const licenseId = chainLicense.contractId || chainLicense.offerId;
+        const royaltyrate = licenseId ? (royaltyRates[licenseId] ?? 0) : 0;
+
         return {
           id: Date.now() + index,
           nftId: chainLicense.nftId,
@@ -300,7 +310,7 @@ function LicensingContent({ onDataChange }: ManageProps) {
             amount: parseFloat(amount) || 0,
             currency: "SLAW",
           },
-          royaltyrate: 0, // Not stored in contract, would need to fetch from offer or metadata
+          royaltyrate: royaltyrate,
           durationType: durationType,
           customDuration: durationType === "Custom" ? {
             value: durationValue,

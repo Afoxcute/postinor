@@ -15,6 +15,7 @@ import {
   CardTitle,
 } from "../ui/card";
 import { Badge } from "../ui/badge";
+import { getLicenseRoyaltyRate, storeLicenseRoyaltyRate } from "@/utils/licenseStorage";
 
 type PaymentType =
   | { oneTime: number }
@@ -95,6 +96,10 @@ export default function AcceptLicense() {
       const accounts = await web3FromAddress(selectedAccount.address);
       api.setSigner(accounts.signer);
 
+      // Get royalty rate from offer ID before accepting (if it exists)
+      const offerIdStr = offerId.toString();
+      const royaltyRate = getLicenseRoyaltyRate(offerIdStr);
+
       // Call the extrinsic
       const unsub = await api.tx.ipPallet
         .acceptLicense(offerId)
@@ -106,6 +111,14 @@ export default function AcceptLicense() {
             console.log(
               `Transaction finalized at block: ${status.asFinalized}`
             );
+            
+            // When license is accepted, contract ID = offer ID (per pallet logic)
+            // Copy royalty rate from offer to contract
+            if (royaltyRate !== null) {
+              storeLicenseRoyaltyRate(offerIdStr, royaltyRate);
+              console.log(`Copied royalty rate ${royaltyRate}% from offer ${offerIdStr} to contract ${offerIdStr}`);
+            }
+            
             events.forEach(({ event }) => {
               if (event.method === "ExtrinsicSuccess") {
                 console.log("Transaction succeeded:", event.toHuman());

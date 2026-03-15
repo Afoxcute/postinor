@@ -43,7 +43,7 @@ const bentoItems = [
     icon: Inbox,
     href: "/extrinsics/offer-purchase",
     color: "bg-indigo-500",
-    disabled: true,
+    disabled: false,
   },
 ];
 

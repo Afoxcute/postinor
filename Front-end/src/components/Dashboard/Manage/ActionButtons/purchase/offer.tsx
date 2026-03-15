@@ -6,12 +6,12 @@ import { web3Enable, web3FromAddress } from "@polkadot/extension-dapp";
 import { getSoftlawApi } from "@/utils/softlaw/getApi";
 
 // Enum para tipos de pago
-enum PaymentType {
+export enum PaymentType {
   OneTime = 'OneTime',
   Periodic = 'Periodic'
 }
 
-interface PaymentTerms {
+export interface PaymentTerms {
   type: PaymentType;
   amount: number;
   // Solo para pagos periódicos

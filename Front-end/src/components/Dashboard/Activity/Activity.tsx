@@ -271,60 +271,95 @@ export default function Activity({ onDataChange }: ActivityProps) {
   // Fetch historical events from recent blocks
   const fetchHistoricalEvents = async () => {
     try {
+      setLoading(true);
+      setError(null);
+      
       const api = await getSoftlawApi();
       await api.isReady;
 
       const currentBlock = await api.rpc.chain.getHeader();
       const currentBlockNumber = currentBlock.number.toNumber();
       
-      // Fetch events from last 100 blocks
-      const blocksToFetch = Math.min(100, currentBlockNumber);
+      // Fetch events from last 1000 blocks (or all blocks if chain is shorter)
+      // This ensures we capture all activities even if the server was restarted
+      const blocksToFetch = Math.min(1000, currentBlockNumber);
       const activitiesList: ActivityItem[] = [];
 
-      for (let i = 0; i < blocksToFetch; i++) {
-        const blockNumber = currentBlockNumber - i;
-        try {
-          const blockHash = await api.rpc.chain.getBlockHash(blockNumber);
-          
-          // Get timestamp if available
-          const timestamp = new Date();
+      console.log(`Fetching events from ${blocksToFetch} blocks (current block: ${currentBlockNumber})`);
 
-          // Get block and extract events
-          const signedBlock = await api.rpc.chain.getBlock(blockHash);
+      // Process blocks in batches to avoid overwhelming the API
+      const batchSize = 50;
+      for (let batchStart = 0; batchStart < blocksToFetch; batchStart += batchSize) {
+        const batchEnd = Math.min(batchStart + batchSize, blocksToFetch);
+        const batchPromises: Promise<void>[] = [];
+
+        for (let i = batchStart; i < batchEnd; i++) {
+          const blockNumber = currentBlockNumber - i;
           
-          // Events are in the block's events array
-          if (signedBlock.block.extrinsics) {
-            // Get events for this block
-            const eventsAt = await api.query.system.events.at(blockHash);
-            
-            // Convert Codec to array
-            const events = eventsAt as any;
-            const eventsArray = events.toArray ? events.toArray() : (Array.isArray(events) ? events : []);
-            
-            eventsArray.forEach((record: any) => {
-              const { event } = record;
-              if (event && event.section === 'ipPallet') {
-                const activity = parseEvent(
-                  event,
-                  blockNumber.toString(),
-                  blockHash.toString(),
-                  timestamp
-                );
-                if (activity) {
-                  activitiesList.push(activity);
+          const fetchBlock = async () => {
+            try {
+              const blockHash = await api.rpc.chain.getBlockHash(blockNumber);
+              
+              // Try to get actual block timestamp if available
+              let timestamp = new Date();
+              try {
+                // Some chains have timestamp pallet - try to get it
+                const timestampValue = await api.query.timestamp?.now.at(blockHash);
+                if (timestampValue) {
+                  const timestampNumber = timestampValue.toNumber();
+                  if (timestampNumber > 0) {
+                    timestamp = new Date(timestampNumber);
+                  }
                 }
+              } catch {
+                // If timestamp pallet not available, use current time
+                // This is okay for display purposes
               }
-            });
-          }
-        } catch (err) {
-          // Skip blocks that can't be fetched
-          console.log(`Skipping block ${blockNumber}:`, err);
-          continue;
+
+              // Get events for this block
+              const eventsAt = await api.query.system.events.at(blockHash);
+              
+              // Convert Codec to array
+              const events = eventsAt as any;
+              const eventsArray = events.toArray ? events.toArray() : (Array.isArray(events) ? events : []);
+              
+              eventsArray.forEach((record: any) => {
+                const { event } = record;
+                if (event && event.section === 'ipPallet') {
+                  const activity = parseEvent(
+                    event,
+                    blockNumber.toString(),
+                    blockHash.toString(),
+                    timestamp
+                  );
+                  if (activity) {
+                    activitiesList.push(activity);
+                  }
+                }
+              });
+            } catch (err) {
+              // Skip blocks that can't be fetched (might be pruned or not exist)
+              console.log(`Skipping block ${blockNumber}:`, err);
+            }
+          };
+
+          batchPromises.push(fetchBlock());
+        }
+
+        // Wait for batch to complete before processing next batch
+        await Promise.all(batchPromises);
+        
+        // Update UI periodically to show progress
+        if (batchStart % 200 === 0) {
+          const sorted = [...activitiesList].sort((a, b) => parseInt(b.blockNumber) - parseInt(a.blockNumber));
+          setActivities(sorted);
         }
       }
 
       // Sort by block number (newest first)
       activitiesList.sort((a, b) => parseInt(b.blockNumber) - parseInt(a.blockNumber));
+      
+      console.log(`Fetched ${activitiesList.length} activities from ${blocksToFetch} blocks`);
       
       setActivities(activitiesList);
       setLoading(false);
@@ -393,9 +428,13 @@ export default function Activity({ onDataChange }: ActivityProps) {
     }
   }, [selectedAccount?.address]);
 
-  // Initial fetch and subscription
+  // Initial fetch on mount - always fetch regardless of account
   useEffect(() => {
     fetchHistoricalEvents();
+  }, []); // Fetch once on mount
+
+  // Subscribe to new events
+  useEffect(() => {
     subscribeToEvents();
 
     return () => {
@@ -403,6 +442,13 @@ export default function Activity({ onDataChange }: ActivityProps) {
         eventSubscription();
       }
     };
+  }, [subscribeToEvents]); // Re-subscribe when callback changes (which happens when account changes)
+
+  // Re-fetch when account changes to filter activities
+  useEffect(() => {
+    if (selectedAccount?.address) {
+      fetchHistoricalEvents();
+    }
   }, [selectedAccount?.address]);
 
   // Filter activities
