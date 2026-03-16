@@ -170,10 +170,26 @@ async function getYakoaInfringementStatus(id) {
         else if (totalInfringements > 1) {
             severity = 'medium';
         }
+        // Determine displaySummary based on result and infringement count
+        // Priority: not_checked (scan pending) > infringements_found > clean > not_registered
+        let displaySummary;
+        const result = tokenData.infringements?.result || 'unknown';
+        
+        if (result === 'not_checked') {
+            // Registered but scan pending - this is a special state
+            displaySummary = totalInfringements > 0 ? 'infringements_found' : 'clean';
+            // Note: We keep displaySummary as 'clean' or 'infringements_found' but the frontend
+            // will check result === 'not_checked' to show "Scan Pending" badge
+        } else if (totalInfringements > 0) {
+            displaySummary = 'infringements_found';
+        } else {
+            displaySummary = 'clean';
+        }
+        
         const infringementStatus = {
             id: tokenData.id,
             status: (tokenData.infringements?.status || 'unknown'),
-            result: (tokenData.infringements?.result || 'unknown'),
+            result: result,
             inNetworkInfringements: inNetwork,
             externalInfringements: external,
             credits: (tokenData.infringements?.credits || {}),
@@ -181,7 +197,7 @@ async function getYakoaInfringementStatus(id) {
             totalInfringements,
             severity,
             hasInfringementsAgainstThisAsset: totalInfringements > 0,
-            displaySummary: totalInfringements > 0 ? 'infringements_found' : 'clean',
+            displaySummary: displaySummary,
         };
         console.log("✅ Yakoa Infringement Status:", infringementStatus);
         return infringementStatus;

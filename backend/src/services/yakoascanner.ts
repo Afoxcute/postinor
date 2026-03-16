@@ -210,10 +210,27 @@ export async function getYakoaInfringementStatus(id: string) {
 
     // result from Yakoa = "is this token an infringer?" (no_infringement = this IP is not copying others).
     // totalInfringements = "how many assets are infringing ON this token?" (others copying this IP).
+    
+    // Determine displaySummary based on result and infringement count
+    // Priority: not_checked (scan pending) > infringements_found > clean > not_registered
+    let displaySummary: 'clean' | 'infringements_found' | 'not_registered';
+    const result = tokenData.infringements?.result || 'unknown';
+    
+    if (result === 'not_checked') {
+      // Registered but scan pending - this is a special state
+      displaySummary = totalInfringements > 0 ? 'infringements_found' as const : 'clean' as const;
+      // Note: We keep displaySummary as 'clean' or 'infringements_found' but the frontend
+      // will check result === 'not_checked' to show "Scan Pending" badge
+    } else if (totalInfringements > 0) {
+      displaySummary = 'infringements_found' as const;
+    } else {
+      displaySummary = 'clean' as const;
+    }
+    
     const infringementStatus = {
       id: tokenData.id,
       status: tokenData.infringements?.status || 'unknown',
-      result: tokenData.infringements?.result || 'unknown',
+      result: result,
       inNetworkInfringements: inNetwork,
       externalInfringements: external,
       credits: tokenData.infringements?.credits || {},
@@ -222,8 +239,8 @@ export async function getYakoaInfringementStatus(id: string) {
       severity: calculateSeverity(),
       // UI-friendly: true when others are infringing on this asset (use this for "X infringement(s) found")
       hasInfringementsAgainstThisAsset: totalInfringements > 0,
-      // Short label for badges/tooltips: "clean" | "infringements_found"
-      displaySummary: totalInfringements > 0 ? 'infringements_found' as const : 'clean' as const,
+      // Short label for badges/tooltips: "clean" | "infringements_found" | "not_registered"
+      displaySummary,
     };
 
     console.log("✅ Yakoa Infringement Status:", infringementStatus);

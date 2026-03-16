@@ -121,6 +121,7 @@ export async function fetchInfringementStatus(yakoaId: string) {
     if (!response.ok) {
       // Handle 404 as "not registered" rather than an error
       if (response.status === 404) {
+        console.log(`Frontend: Yakoa ID ${yakoaId} returned 404 (not registered)`);
         return {
           id: yakoaId,
           status: 'not_registered',
@@ -131,6 +132,7 @@ export async function fetchInfringementStatus(yakoaId: string) {
           hasInfringementsAgainstThisAsset: false,
           displaySummary: 'not_registered' as const,
           lastChecked: null,
+          severity: 'low' as const,
         };
       }
       
@@ -139,7 +141,18 @@ export async function fetchInfringementStatus(yakoaId: string) {
     }
     
     const data = await response.json();
-    return data.data; // The infringement status is in data.data
+    const status = data.data; // The infringement status is in data.data
+    
+    // Trust the backend response completely - it has all the correct fields
+    // including result, displaySummary, severity, etc.
+    console.log(`Frontend: Received infringement status for ${yakoaId}:`, {
+      status: status.status,
+      result: status.result,
+      displaySummary: status.displaySummary,
+      totalInfringements: status.totalInfringements,
+    });
+    
+    return status;
   } catch (error) {
     console.error('Error fetching infringement status:', error);
     // Return a "not registered" status instead of throwing
@@ -153,6 +166,7 @@ export async function fetchInfringementStatus(yakoaId: string) {
       hasInfringementsAgainstThisAsset: false,
       displaySummary: 'not_registered' as const,
       lastChecked: null,
+      severity: 'low' as const,
     };
   }
 }

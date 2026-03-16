@@ -41,7 +41,8 @@ interface IPAsset {
   owner: string;
   name: string;
   description: string;
-  filingDate: string;
+  filingDate: string; // Decoded string for display
+  filingDateHex?: string; // Hex format for Yakoa ID generation (matches backend)
   jurisdiction: string;
   imageUrl?: string; // IPFS URL for the first image
   images?: string[]; // All image URLs
@@ -173,7 +174,100 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
             nftData.FilingDate ||
             nftData['filing_date'] ||
             [];
+          
+          // Store both the decoded string (for display) and raw bytes (for Yakoa ID generation)
           const filingDate = bytesToString(filingDateRaw);
+          
+          // IMPORTANT: The on-chain filing_date may include block number (e.g., "2000-02-22 (Block: 32)")
+          // but the backend registered with just the date (e.g., "2000-02-22")
+          // We need to strip the block number part to match what the backend used
+          const filingDateWithoutBlock = filingDate.split(' (Block:')[0].trim();
+          
+          // Get raw bytes for Yakoa ID generation (to match backend's hex format)
+          // The on-chain data stores filing_date as BoundedVec<u8> (array of bytes)
+          // When converted to JSON, it becomes an array of numbers
+          let filingDateForYakoa: string;
+          if (Array.isArray(filingDateRaw) && filingDateRaw.length > 0) {
+            // Convert bytes array to hex string (matching backend format)
+            // Each number in the array is a byte (0-255)
+            // Filter out any invalid values and ensure they're in the byte range
+            const validBytes = filingDateRaw
+              .map((b: any) => {
+                if (typeof b === 'number') return b;
+                if (typeof b === 'string') {
+                  // Handle hex strings like "0x32" or decimal strings like "50"
+                  if (b.startsWith('0x')) return parseInt(b, 16);
+                  return parseInt(b, 10);
+                }
+                return null;
+              })
+              .filter((b: number | null): b is number => b !== null && b >= 0 && b <= 255);
+            
+            if (validBytes.length > 0) {
+              // Check if the decoded string includes block number
+              // If it does, we need to truncate the bytes to match the date-only format
+              const decodedFromBytes = bytesToString(filingDateRaw);
+              if (decodedFromBytes.includes('(Block:')) {
+                // Re-encode only the date part (without block number) to hex
+                const bytes = new TextEncoder().encode(filingDateWithoutBlock);
+                filingDateForYakoa = '0x' + Array.from(bytes).map((b: number) => b.toString(16).padStart(2, '0')).join('');
+                console.log(`✅ NFT ${nftId}: Stripped block number from filing date:`, {
+                  originalDecoded: decodedFromBytes,
+                  dateOnly: filingDateWithoutBlock,
+                  hexString: filingDateForYakoa,
+                });
+              } else {
+                // No block number, use bytes as-is
+                const hexBytes = validBytes
+                  .map((b: number) => b.toString(16).padStart(2, '0'))
+                  .join('');
+                filingDateForYakoa = `0x${hexBytes}`;
+                console.log(`✅ NFT ${nftId}: Extracted filingDateHex from bytes array:`, {
+                  rawBytes: filingDateRaw,
+                  validBytes,
+                  hexString: filingDateForYakoa,
+                  decodedString: filingDate,
+                });
+              }
+            } else {
+              // Fallback if no valid bytes found
+              const bytes = new TextEncoder().encode(filingDateWithoutBlock);
+              filingDateForYakoa = '0x' + Array.from(bytes).map((b: number) => b.toString(16).padStart(2, '0')).join('');
+              console.warn(`⚠️ NFT ${nftId}: No valid bytes found, using fallback:`, {
+                rawData: filingDateRaw,
+                decodedString: filingDate,
+                dateOnly: filingDateWithoutBlock,
+                hexString: filingDateForYakoa,
+              });
+            }
+          } else if (typeof filingDateRaw === 'string' && filingDateRaw.startsWith('0x')) {
+            // Already hex-encoded - check if it includes block number
+            const decoded = bytesToString(filingDateRaw);
+            if (decoded.includes('(Block:')) {
+              // Re-encode only the date part
+              const bytes = new TextEncoder().encode(filingDateWithoutBlock);
+              filingDateForYakoa = '0x' + Array.from(bytes).map((b: number) => b.toString(16).padStart(2, '0')).join('');
+              console.log(`✅ NFT ${nftId}: Stripped block number from hex filingDate:`, {
+                originalHex: filingDateRaw,
+                originalDecoded: decoded,
+                dateOnly: filingDateWithoutBlock,
+                newHex: filingDateForYakoa,
+              });
+            } else {
+              filingDateForYakoa = filingDateRaw;
+              console.log(`✅ NFT ${nftId}: Using hex filingDate directly:`, filingDateForYakoa);
+            }
+          } else {
+            // Fallback: convert decoded string back to hex (using date only, without block number)
+            const bytes = new TextEncoder().encode(filingDateWithoutBlock);
+            filingDateForYakoa = '0x' + Array.from(bytes).map((b: number) => b.toString(16).padStart(2, '0')).join('');
+            console.log(`✅ NFT ${nftId}: Converted date-only string to hex:`, {
+              originalDecoded: filingDate,
+              dateOnly: filingDateWithoutBlock,
+              hexString: filingDateForYakoa,
+              rawData: filingDateRaw,
+            });
+          }
           
           const jurisdictionRaw = 
             nftData.jurisdiction || 
@@ -187,7 +281,8 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
             owner: owner,
             name: name,
             description: description,
-            filingDate: filingDate,
+            filingDate: filingDate, // Decoded string for display
+            filingDateHex: filingDateForYakoa, // Hex format for Yakoa ID generation
             jurisdiction: jurisdiction,
           };
         });
@@ -300,10 +395,22 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
                 setInfringementLoading(prev => ({ ...prev, [asset.id]: true }));
                 
                 // Get Yakoa ID from filing date and NFT ID
-                // Note: filingDate might be in hex format (0x...) or string format
-                const yakoaId = getYakoaId(asset.filingDate, asset.id);
+                // IMPORTANT: The backend uses the Substrate owner address (not the numeric ID) 
+                // in the hash when generating the contract address during registration.
+                // We need to use the owner address here to match what the backend used.
+                const filingDateForYakoa = asset.filingDateHex || asset.filingDate;
+                // Use owner address (Substrate address) for contract address generation, 
+                // but numeric ID for the token ID part
+                const yakoaId = getYakoaId(filingDateForYakoa, asset.owner);
                 
-                console.log(`Fetching infringement status for NFT ${asset.id}, Yakoa ID:`, yakoaId);
+                console.log(`🔍 Fetching infringement status for NFT ${asset.id}:`, {
+                  numericId: asset.id,
+                  owner: asset.owner,
+                  filingDate: asset.filingDate,
+                  filingDateHex: asset.filingDateHex,
+                  filingDateForYakoa,
+                  yakoaId,
+                });
                 
                 // Add small delay between requests to avoid rate limiting
                 if (index > 0) {
@@ -312,8 +419,15 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
                 
                 const infringementStatus = await fetchInfringementStatus(yakoaId);
                 
-                console.log(`Infringement status for NFT ${asset.id}:`, infringementStatus);
+                console.log(`Infringement status for NFT ${asset.id}:`, {
+                  yakoaId,
+                  status: infringementStatus.status,
+                  result: infringementStatus.result,
+                  displaySummary: infringementStatus.displaySummary,
+                  totalInfringements: infringementStatus.totalInfringements,
+                });
                 
+                // Trust the backend response completely - don't override any fields
                 return {
                   ...asset,
                   infringementStatus,
@@ -574,7 +688,9 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
                                   <button
                                     onClick={async () => {
                                       if (asset.filingDate) {
-                                        const yakoaId = getYakoaId(asset.filingDate, asset.id);
+                                        const filingDateForYakoa = asset.filingDateHex || asset.filingDate;
+                                        // Use owner address (Substrate address) to match what backend used during registration
+                                        const yakoaId = getYakoaId(filingDateForYakoa, asset.owner);
                                         setInfringementLoading(prev => ({ ...prev, [asset.id]: true }));
                                         try {
                                           const status = await fetchInfringementStatus(yakoaId);
@@ -622,7 +738,9 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
                                   <button
                                     onClick={async () => {
                                       if (asset.filingDate) {
-                                        const yakoaId = getYakoaId(asset.filingDate, asset.id);
+                                        const filingDateForYakoa = asset.filingDateHex || asset.filingDate;
+                                        // Use owner address (Substrate address) to match what backend used during registration
+                                        const yakoaId = getYakoaId(filingDateForYakoa, asset.owner);
                                         setInfringementLoading(prev => ({ ...prev, [asset.id]: true }));
                                         try {
                                           const status = await fetchInfringementStatus(yakoaId);
@@ -655,7 +773,9 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
                                   <button
                                     onClick={async () => {
                                       if (asset.filingDate) {
-                                        const yakoaId = getYakoaId(asset.filingDate, asset.id);
+                                        const filingDateForYakoa = asset.filingDateHex || asset.filingDate;
+                                        // Use owner address (Substrate address) to match what backend used during registration
+                                        const yakoaId = getYakoaId(filingDateForYakoa, asset.owner);
                                         setInfringementLoading(prev => ({ ...prev, [asset.id]: true }));
                                         try {
                                           const status = await fetchInfringementStatus(yakoaId);
