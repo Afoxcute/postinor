@@ -478,6 +478,13 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
                                 >
                                   <span className="text-gray-400 text-xs font-semibold">Not Registered</span>
                                 </div>
+                              ) : asset.infringementStatus.result === 'not_checked' ? (
+                                <div 
+                                  className="flex items-center gap-1 px-2 py-1 rounded-md bg-yellow-900/30 border border-yellow-500/60 cursor-help"
+                                  title="Registered with Yakoa, scan pending"
+                                >
+                                  <span className="text-yellow-300 text-xs font-semibold">Scan Pending</span>
+                                </div>
                               ) : asset.infringementStatus.hasInfringementsAgainstThisAsset ? (
                                 <div 
                                   className="flex items-center gap-1 px-2 py-1 rounded-md bg-red-900/30 border border-red-500/50 cursor-help"
@@ -550,6 +557,42 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
                                   <div className="text-[#8A8A8A] text-xs italic">
                                     This IP asset will be automatically monitored once registered
                                   </div>
+                                </div>
+                              ) : asset.infringementStatus.result === 'not_checked' ? (
+                                <div className="flex flex-col gap-1">
+                                  <div className="text-yellow-300 text-xs font-semibold">
+                                    ⏳ Registered with Yakoa, scan pending
+                                  </div>
+                                  <div className="text-[#8A8A8A] text-xs italic">
+                                    Yakoa has this IP registered but hasn&apos;t completed the infringement scan yet.
+                                  </div>
+                                  {asset.infringementStatus.lastChecked && (
+                                    <div className="text-[#8A8A8A] text-xs italic mt-1">
+                                      Last status update: {new Date(asset.infringementStatus.lastChecked).toLocaleString()}
+                                    </div>
+                                  )}
+                                  <button
+                                    onClick={async () => {
+                                      if (asset.filingDate) {
+                                        const yakoaId = getYakoaId(asset.filingDate, asset.id);
+                                        setInfringementLoading(prev => ({ ...prev, [asset.id]: true }));
+                                        try {
+                                          const status = await fetchInfringementStatus(yakoaId);
+                                          setIpAssets(prev => prev.map(a => 
+                                            a.id === asset.id ? { ...a, infringementStatus: status } : a
+                                          ));
+                                        } catch (err) {
+                                          console.error('Error refreshing infringement status:', err);
+                                        } finally {
+                                          setInfringementLoading(prev => ({ ...prev, [asset.id]: false }));
+                                        }
+                                      }
+                                    }}
+                                    className="mt-2 text-xs px-2 py-1 bg-yellow-600 hover:bg-yellow-700 text-black rounded transition-colors"
+                                    disabled={infringementLoading[asset.id]}
+                                  >
+                                    {infringementLoading[asset.id] ? '⏳ Refreshing...' : '🔄 Check Again'}
+                                  </button>
                                 </div>
                               ) : asset.infringementStatus.hasInfringementsAgainstThisAsset ? (
                                 <div className="flex flex-col gap-1">

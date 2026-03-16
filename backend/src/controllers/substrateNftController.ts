@@ -157,7 +157,7 @@ const handleSubstrateNftRegistration = async (req: Request, res: Response) => {
           jurisdiction: jurisdiction || '',
           nft_id: nftId.toString(),
           contract_address: contractAddress,
-          token_id: numericTokenId,
+          token_id: tokenIdForYakoa,
         }
       }
     ] : [];

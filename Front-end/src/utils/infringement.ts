@@ -92,8 +92,14 @@ export function getYakoaId(filingDate: string, nftId: string | number): string {
   }
   
   const contractAddress = formatFilingDateAsContractAddress(filingDateHex, nftId);
-  const tokenId = convertNftIdToNumericTokenId(nftId);
-  return `${contractAddress}:${tokenId}`;
+  
+  // Determine token ID for Yakoa (match backend logic):
+  // - If nftId is already numeric (e.g. on-chain IP ID like 0, 1, 2...), use it directly
+  // - Otherwise, fall back to "0" to keep the ID compact and human-readable
+  const nftIdString = nftId.toString();
+  const tokenIdForYakoa = /^\d+$/.test(nftIdString) ? nftIdString : '0';
+  
+  return `${contractAddress}:${tokenIdForYakoa}`;
 }
 
 /**
