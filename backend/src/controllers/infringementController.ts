@@ -24,7 +24,29 @@ const handleInfringementStatus = async (req: Request, res: Response) => {
     };
 
     return res.status(200).json(convertBigIntsToStrings(responseData));
-  } catch (err) {
+  } catch (err: any) {
+    // Don't log 404 errors as they're expected (not registered assets)
+    // The getYakoaInfringementStatus function should handle 404s, but if it doesn't, handle here
+    if (err.response?.status === 404 || err.status === 404) {
+      const notRegisteredStatus = {
+        id: req.params.id,
+        status: 'not_registered',
+        result: 'not_found',
+        inNetworkInfringements: [],
+        externalInfringements: [],
+        credits: {},
+        lastChecked: null,
+        totalInfringements: 0,
+        severity: 'low' as const,
+        hasInfringementsAgainstThisAsset: false,
+        displaySummary: 'not_registered' as const,
+      };
+      return res.status(200).json(convertBigIntsToStrings({
+        message: 'Infringement status retrieved successfully',
+        data: notRegisteredStatus
+      }));
+    }
+    
     console.error('❌ Infringement status error:', err);
     return res.status(500).json({
       error: 'Failed to retrieve infringement status',
@@ -58,7 +80,29 @@ const handleInfringementStatusByContract = async (req: Request, res: Response) =
     };
 
     return res.status(200).json(convertBigIntsToStrings(responseData));
-  } catch (err) {
+  } catch (err: any) {
+    // Don't log 404 errors as they're expected (not registered assets)
+    // The getYakoaInfringementStatus function should handle 404s, but if it doesn't, handle here
+    if (err.response?.status === 404 || err.status === 404) {
+      const notRegisteredStatus = {
+        id: `${contractAddress.toLowerCase()}:${tokenId}`,
+        status: 'not_registered',
+        result: 'not_found',
+        inNetworkInfringements: [],
+        externalInfringements: [],
+        credits: {},
+        lastChecked: null,
+        totalInfringements: 0,
+        severity: 'low' as const,
+        hasInfringementsAgainstThisAsset: false,
+        displaySummary: 'not_registered' as const,
+      };
+      return res.status(200).json(convertBigIntsToStrings({
+        message: 'Infringement status retrieved successfully',
+        data: notRegisteredStatus
+      }));
+    }
+    
     console.error('❌ Infringement status error:', err);
     return res.status(500).json({
       error: 'Failed to retrieve infringement status',

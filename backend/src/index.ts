@@ -9,6 +9,7 @@ import yakoaRoutes from './routes/yakoaRoutes';
 import licenseRoutes from './routes/license';
 import infringementRoutes from './routes/infringement';
 import storachaRoutes from './routes/storacha';
+import substrateNftRoutes from './routes/substrateNft';
 
 // Load .env from backend project root so STORACHA_KEY, STORACHA_PROOF, etc. are found
 const envPath = path.resolve(__dirname, '..', '.env');
@@ -30,6 +31,7 @@ app.use('/api/yakoa', yakoaRoutes);
 app.use('/api/license', licenseRoutes);
 app.use('/api/infringement', infringementRoutes);
 app.use('/api/storacha', storachaRoutes);
+app.use('/api/substrate-nft', substrateNftRoutes);
 
 // Default route (optional)
 app.get('/', (_req, res) => {

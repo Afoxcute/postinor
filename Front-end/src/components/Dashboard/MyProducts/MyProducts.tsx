@@ -13,9 +13,27 @@ import { useAccountsContext } from "@/context/account";
 import { getSoftlawApi } from "@/utils/softlaw/getApi";
 import { getNFTMetadataUrls, fetchNFTMetadata, getAndClearPendingMetadata, storePendingMetadata, storeNFTMetadata } from "@/utils/nftMetadataStorage";
 import { getIPFSGatewayURL } from "@/utils/ipfs";
+import { getYakoaId, fetchInfringementStatus } from "@/utils/infringement";
 
 interface MyProductsProps {
   onDataChange: (data: any) => void;
+}
+
+interface InfringementStatus {
+  id: string;
+  status: string;
+  result: string;
+  inNetworkInfringements: any[];
+  externalInfringements: any[];
+  totalInfringements: number;
+  hasInfringementsAgainstThisAsset: boolean;
+  displaySummary: 'clean' | 'infringements_found' | 'not_registered';
+  severity?: 'low' | 'medium' | 'high' | 'critical';
+  lastChecked?: string | null;
+  credits?: {
+    used?: number;
+    remaining?: number;
+  };
 }
 
 interface IPAsset {
@@ -27,6 +45,7 @@ interface IPAsset {
   jurisdiction: string;
   imageUrl?: string; // IPFS URL for the first image
   images?: string[]; // All image URLs
+  infringementStatus?: InfringementStatus; // Infringement status from Yakoa
 }
 
 export default function MyProducts({ onDataChange }: MyProductsProps) {
@@ -42,6 +61,7 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [imageLoading, setImageLoading] = useState<Record<string, boolean>>({});
+  const [infringementLoading, setInfringementLoading] = useState<Record<string, boolean>>({});
 
   // Helper function to convert BoundedVec<u8> to string
   const bytesToString = (bytes: any): string => {
@@ -268,8 +288,49 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
             })
           );
 
-          setIpAssets(assetsWithImages);
-          console.log("Final IP assets to display:", assetsWithImages.length, "assets");
+          // Fetch infringement status for each asset (with auto-monitoring)
+          const assetsWithInfringementStatus = await Promise.all(
+            assetsWithImages.map(async (asset, index) => {
+              // Skip if no filing date (required for Yakoa ID)
+              if (!asset.filingDate) {
+                return asset;
+              }
+
+              try {
+                setInfringementLoading(prev => ({ ...prev, [asset.id]: true }));
+                
+                // Get Yakoa ID from filing date and NFT ID
+                // Note: filingDate might be in hex format (0x...) or string format
+                const yakoaId = getYakoaId(asset.filingDate, asset.id);
+                
+                console.log(`Fetching infringement status for NFT ${asset.id}, Yakoa ID:`, yakoaId);
+                
+                // Add small delay between requests to avoid rate limiting
+                if (index > 0) {
+                  await new Promise(resolve => setTimeout(resolve, 350));
+                }
+                
+                const infringementStatus = await fetchInfringementStatus(yakoaId);
+                
+                console.log(`Infringement status for NFT ${asset.id}:`, infringementStatus);
+                
+                return {
+                  ...asset,
+                  infringementStatus,
+                };
+              } catch (err) {
+                console.error(`Error fetching infringement status for NFT ${asset.id}:`, err);
+                // Don't fail the entire asset if infringement check fails
+                // Return asset with undefined infringement status
+                return asset;
+              } finally {
+                setInfringementLoading(prev => ({ ...prev, [asset.id]: false }));
+              }
+            })
+          );
+
+          setIpAssets(assetsWithInfringementStatus);
+          console.log("Final IP assets to display:", assetsWithInfringementStatus.length, "assets");
           hasInitialLoad = true;
         } else if (isMounted) {
           setIpAssets(filteredAssets);
@@ -401,10 +462,41 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
                           </div>
                         )}
 
-                        {/* NFT ID */}
+                        {/* NFT ID and Infringement Status */}
                         <div className="flex justify-between items-center">
                           <span className="text-[#8A8A8A] text-sm">IP ID:</span>
-                          <span className="text-[#EFF4F6] font-semibold">#{asset.id}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="text-[#EFF4F6] font-semibold">#{asset.id}</span>
+                            {/* Infringement Status Badge */}
+                            {infringementLoading[asset.id] ? (
+                              <div className="w-2 h-2 rounded-full bg-yellow-500 animate-pulse" title="Checking infringement status..." />
+                            ) : asset.infringementStatus ? (
+                              asset.infringementStatus.displaySummary === 'not_registered' ? (
+                                <div 
+                                  className="flex items-center gap-1 px-2 py-1 rounded-md bg-gray-900/30 border border-gray-500/50 cursor-help"
+                                  title="NFT not registered with Yakoa yet"
+                                >
+                                  <span className="text-gray-400 text-xs font-semibold">Not Registered</span>
+                                </div>
+                              ) : asset.infringementStatus.hasInfringementsAgainstThisAsset ? (
+                                <div 
+                                  className="flex items-center gap-1 px-2 py-1 rounded-md bg-red-900/30 border border-red-500/50 cursor-help"
+                                  title={`${asset.infringementStatus.totalInfringements} infringement(s) found. Click for details.`}
+                                >
+                                  <span className="text-red-400 text-xs font-semibold">
+                                    ⚠️ {asset.infringementStatus.totalInfringements}
+                                  </span>
+                                </div>
+                              ) : (
+                                <div 
+                                  className="flex items-center gap-1 px-2 py-1 rounded-md bg-green-900/30 border border-green-500/50 cursor-help"
+                                  title="No infringements detected"
+                                >
+                                  <span className="text-green-400 text-xs font-semibold">✓ Clean</span>
+                                </div>
+                              )
+                            ) : null}
+                          </div>
                         </div>
 
                         {/* Name */}
@@ -444,6 +536,106 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
                           <span className="text-[#8A8A8A] text-sm">Owner:</span>
                           <span className="text-[#EFF4F6] text-xs font-mono">{formatAddress(asset.owner)}</span>
                         </div>
+
+                        {/* Infringement Details (enhanced) */}
+                        {asset.infringementStatus && (
+                          <div className="pt-[8px] border-t border-[#373737]">
+                            <div className="flex flex-col gap-2">
+                              <span className="text-[#8A8A8A] text-sm">Infringement Status:</span>
+                              {asset.infringementStatus.displaySummary === 'not_registered' ? (
+                                <div className="flex flex-col gap-1">
+                                  <div className="text-gray-400 text-xs">
+                                    ⏳ Not registered with Yakoa yet
+                                  </div>
+                                  <div className="text-[#8A8A8A] text-xs italic">
+                                    This IP asset will be automatically monitored once registered
+                                  </div>
+                                </div>
+                              ) : asset.infringementStatus.hasInfringementsAgainstThisAsset ? (
+                                <div className="flex flex-col gap-1">
+                                  <div className="text-red-400 text-xs font-semibold">
+                                    ⚠️ {asset.infringementStatus.totalInfringements} infringement(s) detected
+                                    {asset.infringementStatus.severity && asset.infringementStatus.severity !== 'low' && (
+                                      <span className="ml-1 text-xs opacity-75">
+                                        ({asset.infringementStatus.severity})
+                                      </span>
+                                    )}
+                                  </div>
+                                  {asset.infringementStatus.inNetworkInfringements.length > 0 && (
+                                    <div className="text-[#8A8A8A] text-xs pl-2">
+                                      • {asset.infringementStatus.inNetworkInfringements.length} in-network
+                                    </div>
+                                  )}
+                                  {asset.infringementStatus.externalInfringements.length > 0 && (
+                                    <div className="text-[#8A8A8A] text-xs pl-2">
+                                      • {asset.infringementStatus.externalInfringements.length} external
+                                    </div>
+                                  )}
+                                  {asset.infringementStatus.lastChecked && (
+                                    <div className="text-[#8A8A8A] text-xs italic mt-1">
+                                      Last checked: {new Date(asset.infringementStatus.lastChecked).toLocaleString()}
+                                    </div>
+                                  )}
+                                  <button
+                                    onClick={async () => {
+                                      if (asset.filingDate) {
+                                        const yakoaId = getYakoaId(asset.filingDate, asset.id);
+                                        setInfringementLoading(prev => ({ ...prev, [asset.id]: true }));
+                                        try {
+                                          const status = await fetchInfringementStatus(yakoaId);
+                                          setIpAssets(prev => prev.map(a => 
+                                            a.id === asset.id ? { ...a, infringementStatus: status } : a
+                                          ));
+                                        } catch (err) {
+                                          console.error('Error refreshing infringement status:', err);
+                                        } finally {
+                                          setInfringementLoading(prev => ({ ...prev, [asset.id]: false }));
+                                        }
+                                      }
+                                    }}
+                                    className="mt-2 text-xs px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+                                    disabled={infringementLoading[asset.id]}
+                                  >
+                                    {infringementLoading[asset.id] ? '⏳ Refreshing...' : '🔄 Refresh Status'}
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col gap-1">
+                                  <div className="text-green-400 text-xs font-semibold">
+                                    ✓ No infringements detected
+                                  </div>
+                                  {asset.infringementStatus.lastChecked && (
+                                    <div className="text-[#8A8A8A] text-xs italic">
+                                      Last checked: {new Date(asset.infringementStatus.lastChecked).toLocaleString()}
+                                    </div>
+                                  )}
+                                  <button
+                                    onClick={async () => {
+                                      if (asset.filingDate) {
+                                        const yakoaId = getYakoaId(asset.filingDate, asset.id);
+                                        setInfringementLoading(prev => ({ ...prev, [asset.id]: true }));
+                                        try {
+                                          const status = await fetchInfringementStatus(yakoaId);
+                                          setIpAssets(prev => prev.map(a => 
+                                            a.id === asset.id ? { ...a, infringementStatus: status } : a
+                                          ));
+                                        } catch (err) {
+                                          console.error('Error refreshing infringement status:', err);
+                                        } finally {
+                                          setInfringementLoading(prev => ({ ...prev, [asset.id]: false }));
+                                        }
+                                      }
+                                    }}
+                                    className="mt-2 text-xs px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+                                    disabled={infringementLoading[asset.id]}
+                                  >
+                                    {infringementLoading[asset.id] ? '⏳ Refreshing...' : '🔄 Refresh Status'}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

@@ -306,9 +306,16 @@ export default function Activity({ onDataChange }: ActivityProps) {
                 // Some chains have timestamp pallet - try to get it
                 const timestampValue = await api.query.timestamp?.now.at(blockHash);
                 if (timestampValue) {
-                  const timestampNumber = timestampValue.toNumber();
-                  if (timestampNumber > 0) {
-                    timestamp = new Date(timestampNumber);
+                  // Type assertion: Codec from timestamp pallet has toNumber() method
+                  const timestampNumber = (timestampValue as any).toNumber?.();
+                  if (timestampNumber && timestampNumber > 0) {
+                    // Timestamp is usually in milliseconds, but check if it's seconds
+                    // If it's less than a reasonable date (year 2000), assume it's seconds
+                    if (timestampNumber < 946684800000) {
+                      timestamp = new Date(timestampNumber * 1000);
+                    } else {
+                      timestamp = new Date(timestampNumber);
+                    }
                   }
                 }
               } catch {

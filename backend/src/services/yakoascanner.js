@@ -152,22 +152,60 @@ async function getYakoaInfringementStatus(id) {
             },
         });
         const tokenData = response.data;
+        const inNetwork = (tokenData.infringements?.in_network_infringements || []);
+        const external = (tokenData.infringements?.external_infringements || []);
+        const totalInfringements = inNetwork.length + external.length;
+        // Calculate a simple severity level similar to the TypeScript version
+        const hasHighSimilarity = [...inNetwork, ...external].some((inf) => ((inf === null || inf === void 0 ? void 0 : inf.similarity) || 0) > 0.9);
+        let severity = 'low';
+        if (totalInfringements === 0) {
+            severity = 'low';
+        }
+        else if (hasHighSimilarity && totalInfringements > 5) {
+            severity = 'critical';
+        }
+        else if (hasHighSimilarity || totalInfringements > 3) {
+            severity = 'high';
+        }
+        else if (totalInfringements > 1) {
+            severity = 'medium';
+        }
         const infringementStatus = {
             id: tokenData.id,
-            status: tokenData.infringements?.status || 'unknown',
-            result: tokenData.infringements?.result || 'unknown',
-            inNetworkInfringements: tokenData.infringements?.in_network_infringements || [],
-            externalInfringements: tokenData.infringements?.external_infringements || [],
-            credits: tokenData.infringements?.credits || {},
-            lastChecked: tokenData.infringements?.last_checked || null,
-            totalInfringements: (tokenData.infringements?.in_network_infringements?.length || 0) +
-                (tokenData.infringements?.external_infringements?.length || 0)
+            status: (tokenData.infringements?.status || 'unknown'),
+            result: (tokenData.infringements?.result || 'unknown'),
+            inNetworkInfringements: inNetwork,
+            externalInfringements: external,
+            credits: (tokenData.infringements?.credits || {}),
+            lastChecked: (tokenData.infringements?.last_checked || new Date().toISOString()),
+            totalInfringements,
+            severity,
+            hasInfringementsAgainstThisAsset: totalInfringements > 0,
+            displaySummary: totalInfringements > 0 ? 'infringements_found' : 'clean',
         };
         console.log("✅ Yakoa Infringement Status:", infringementStatus);
         return infringementStatus;
     }
     catch (err) {
-        console.error("❌ Error fetching Yakoa infringement status:", err.response?.data || err.message);
+        // Handle 404 as "not registered" rather than an error
+        if (err?.response?.status === 404 || err?.status === 404) {
+            console.log("ℹ️ IP asset " + id + " not found in Yakoa (404), returning not_registered status");
+            return {
+                id,
+                status: 'not_registered',
+                result: 'not_found',
+                inNetworkInfringements: [],
+                externalInfringements: [],
+                credits: {},
+                lastChecked: null,
+                totalInfringements: 0,
+                severity: 'low',
+                hasInfringementsAgainstThisAsset: false,
+                displaySummary: 'not_registered',
+            };
+        }
+        // Only log as error if it's not a 404
+        console.error("❌ Error fetching Yakoa infringement status:", (err?.response?.data || err?.message));
         throw err;
     }
 }

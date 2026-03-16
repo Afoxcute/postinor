@@ -153,14 +153,18 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
     });
 
     try {
-      const tx = await api.tx.ipPallet
+      const tx = api.tx.ipPallet
         .mintNft(
           name,              // Actual value, not "nftMetadata.name"
           description,       // Actual value, not "nftMetadata.description"
           filingDate,        // Actual value, not "nftMetadata.useDate"
           jurisdiction       // Actual value, not "nftMetadata.registryNumber"
-        )
-        .signAndSend(addr, { signer: injector.signer }, async ({ status, events, dispatchError }: any) => {
+        );
+      
+      // Get transaction hash before sending
+      const txHash = tx.hash.toHex();
+      
+      await tx.signAndSend(addr, { signer: injector.signer }, async ({ status, events, dispatchError }: any) => {
           if (dispatchError) {
             console.error("Transaction error:", dispatchError);
             toast({
@@ -172,6 +176,31 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
           }
 
           if (status.isInBlock || status.isFinalized) {
+            // Extract block hash and block number
+            const blockHash = status.isInBlock ? status.asInBlock.toString() : status.asFinalized.toString();
+            
+            // Get block number from block hash
+            let blockNumber: bigint | null = null;
+            try {
+              const block = await api.rpc.chain.getBlock(blockHash);
+              blockNumber = block.block.header.number.toBigInt();
+            } catch (err) {
+              console.error('Error getting block number:', err);
+              // Fallback: try to get from header
+              try {
+                const header = await api.rpc.chain.getHeader(blockHash);
+                blockNumber = header.number.toBigInt();
+              } catch (headerErr) {
+                console.error('Error getting block number from header:', headerErr);
+              }
+            }
+            
+            console.log('Transaction details:', {
+              txHash,
+              blockHash,
+              blockNumber: blockNumber?.toString() || 'unknown'
+            });
+
             // Extract NFT ID from events
             let nftId = null;
             console.log('Transaction events:', events);
@@ -227,14 +256,82 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({
               }
             }
 
-            toast({
-              title: "Proof of Innovation Created",
-              description: nftId 
-                ? `Successfully created proof of innovation ID ${nftId}`
-                : `Successfully created proof of innovation from Substrate Address: ${addr}`,
-              variant: "default",
-              className: "bg-white text-black border border-gray-200",
-            });
+            // Register NFT with Yakoa for infringement detection
+            if (nftId && blockNumber) {
+              try {
+                // Convert filingDate to hex format
+                // The filingDate is a string, convert it to hex bytes
+                const filingDateHex = `0x${Buffer.from(filingDate, 'utf8').toString('hex')}`;
+                
+                console.log('Registering NFT with Yakoa:', {
+                  nftId,
+                  filingDateHex,
+                  txHash,
+                  blockNumber: blockNumber.toString()
+                });
+
+                // Get backend API URL from environment or use default
+                const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000';
+                
+                const response = await fetch(`${backendUrl}/api/substrate-nft/register`, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    nftId,
+                    filingDate: filingDateHex,
+                    transactionHash: txHash,
+                    blockNumber: blockNumber.toString(),
+                    owner: addr,
+                    name,
+                    description,
+                    jurisdiction,
+                    metadataUrl: metadataUrlToStore || undefined,
+                  }),
+                });
+
+                if (!response.ok) {
+                  const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                  console.error('Failed to register NFT with Yakoa:', errorData);
+                  toast({
+                    title: "NFT Minted",
+                    description: `NFT ${nftId} created successfully, but Yakoa registration failed: ${errorData.error || 'Unknown error'}`,
+                    variant: "default",
+                    className: "bg-yellow-500 text-black border border-gray-200",
+                  });
+                } else {
+                  const yakoaResponse = await response.json();
+                  console.log('Successfully registered NFT with Yakoa:', yakoaResponse);
+                  toast({
+                    title: "Proof of Innovation Created",
+                    description: `Successfully created proof of innovation ID ${nftId} and registered with Yakoa for infringement detection`,
+                    variant: "default",
+                    className: "bg-white text-black border border-gray-200",
+                  });
+                }
+              } catch (yakoaError) {
+                console.error('Error registering NFT with Yakoa:', yakoaError);
+                // Don't fail the entire mint if Yakoa registration fails
+                toast({
+                  title: "Proof of Innovation Created",
+                  description: nftId 
+                    ? `Successfully created proof of innovation ID ${nftId} (Yakoa registration failed)`
+                    : `Successfully created proof of innovation from Substrate Address: ${addr}`,
+                  variant: "default",
+                  className: "bg-white text-black border border-gray-200",
+                });
+              }
+            } else {
+              toast({
+                title: "Proof of Innovation Created",
+                description: nftId 
+                  ? `Successfully created proof of innovation ID ${nftId}`
+                  : `Successfully created proof of innovation from Substrate Address: ${addr}`,
+                variant: "default",
+                className: "bg-white text-black border border-gray-200",
+              });
+            }
           }
         });
     } catch (e) {

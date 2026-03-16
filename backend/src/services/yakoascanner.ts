@@ -64,7 +64,7 @@ export async function registerToYakoa({
   transactionHash: `0x${string}`;
   blockNumber: bigint;
   creatorId: string;
-  metadata: { [key: string]: string };
+  metadata: { [key: string]: string | number | boolean };
   media: { media_id: string; url: string }[];
   brandId?: string | null;
   brandName?: string | null;
@@ -193,6 +193,21 @@ export async function getYakoaInfringementStatus(id: string) {
     const external = tokenData.infringements?.external_infringements || [];
     const totalInfringements = inNetwork.length + external.length;
 
+    // Calculate severity based on infringement count and similarity scores
+    const calculateSeverity = (): 'low' | 'medium' | 'high' | 'critical' => {
+      if (totalInfringements === 0) return 'low';
+      
+      const hasHighSimilarity = [
+        ...inNetwork,
+        ...external
+      ].some((inf: any) => (inf.similarity || 0) > 0.9);
+
+      if (hasHighSimilarity && totalInfringements > 5) return 'critical';
+      if (hasHighSimilarity || totalInfringements > 3) return 'high';
+      if (totalInfringements > 1) return 'medium';
+      return 'low';
+    };
+
     // result from Yakoa = "is this token an infringer?" (no_infringement = this IP is not copying others).
     // totalInfringements = "how many assets are infringing ON this token?" (others copying this IP).
     const infringementStatus = {
@@ -202,8 +217,9 @@ export async function getYakoaInfringementStatus(id: string) {
       inNetworkInfringements: inNetwork,
       externalInfringements: external,
       credits: tokenData.infringements?.credits || {},
-      lastChecked: tokenData.infringements?.last_checked || null,
+      lastChecked: tokenData.infringements?.last_checked || new Date().toISOString(),
       totalInfringements,
+      severity: calculateSeverity(),
       // UI-friendly: true when others are infringing on this asset (use this for "X infringement(s) found")
       hasInfringementsAgainstThisAsset: totalInfringements > 0,
       // Short label for badges/tooltips: "clean" | "infringements_found"
@@ -213,6 +229,25 @@ export async function getYakoaInfringementStatus(id: string) {
     console.log("✅ Yakoa Infringement Status:", infringementStatus);
     return infringementStatus;
   } catch (err: any) {
+    // Handle 404 as "not registered" rather than an error
+    if (err.response?.status === 404 || err.status === 404) {
+      console.log(`ℹ️ IP asset ${id} not found in Yakoa (404), returning not_registered status`);
+      return {
+        id,
+        status: 'not_registered',
+        result: 'not_found',
+        inNetworkInfringements: [],
+        externalInfringements: [],
+        credits: {},
+        lastChecked: null,
+        totalInfringements: 0,
+        severity: 'low' as const,
+        hasInfringementsAgainstThisAsset: false,
+        displaySummary: 'not_registered' as const,
+      };
+    }
+    
+    // Only log as error if it's not a 404
     console.error("❌ Error fetching Yakoa infringement status:", err.response?.data || err.message);
     throw err;
   }

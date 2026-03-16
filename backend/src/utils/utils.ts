@@ -1,4 +1,4 @@
-import { Address, parseEther, zeroAddress } from 'viem'
+import { Address, parseEther, zeroAddress, keccak256, hexToBytes, concat, toHex } from 'viem'
 import dotenv from 'dotenv'
 import { networkInfo, NATIVE_TOKEN_ADDRESS } from './config'
 
@@ -118,4 +118,99 @@ export function getFlowExplorerUrl(txHash: string): string {
 
 export function getFlowAddressExplorerUrl(address: string): string {
     return `${networkInfo.blockExplorer}/address/${address}`
+}
+
+/**
+ * Convert Substrate address to a valid EVM address
+ * Yakoa requires EVM addresses (0x + 40 hex characters)
+ * @param substrateAddress - Substrate address string
+ * @returns Valid EVM contract address (0x + 40 hex characters)
+ */
+export function convertSubstrateAddressToEvmAddress(substrateAddress: string): Address {
+  // Convert Substrate address to bytes
+  const addressBytes = typeof Buffer !== 'undefined' 
+    ? new Uint8Array(Buffer.from(substrateAddress, 'utf8'))
+    : new TextEncoder().encode(substrateAddress);
+  
+  const addressHex = toHex(addressBytes);
+  
+  // Hash using Keccak256
+  const hash = keccak256(addressHex);
+  
+  // Take first 40 characters (20 bytes) after 0x prefix
+  // This gives us a valid EVM address format (0x + 40 hex chars = 42 total)
+  const address = `0x${hash.slice(2, 42)}` as Address;
+  
+  return address;
+}
+
+/**
+ * Convert Substrate address or NFT ID to a numeric token ID for Yakoa
+ * Yakoa requires numeric token IDs (digits only)
+ * @param nftId - NFT ID (can be number, string, or Substrate address)
+ * @returns Numeric token ID as string
+ */
+export function convertNftIdToNumericTokenId(nftId: string | number): string {
+  // If it's already a number, return it as string
+  if (typeof nftId === 'number') {
+    return nftId.toString();
+  }
+  
+  // If it's a numeric string, return as-is
+  if (/^\d+$/.test(nftId)) {
+    return nftId;
+  }
+  
+  // For Substrate addresses or other strings, hash them to get a numeric value
+  const nftIdString = nftId.toString();
+  const nftIdBytes = typeof Buffer !== 'undefined' 
+    ? new Uint8Array(Buffer.from(nftIdString, 'utf8'))
+    : new TextEncoder().encode(nftIdString);
+  
+  const nftIdHex = toHex(nftIdBytes);
+  const hash = keccak256(nftIdHex);
+  
+  // Convert hash to BigInt and then to string (this gives us a large numeric value)
+  // Take first 16 bytes (32 hex chars) to avoid exceeding JavaScript number limits
+  const numericValue = BigInt(`0x${hash.slice(2, 34)}`);
+  
+  return numericValue.toString();
+}
+
+/**
+ * Format filing date (hex-encoded bytes) as a valid EVM contract address
+ * Uses Keccak256 hash to generate a deterministic 40-character hex address
+ * @param filingDateHex - Hex-encoded filing date (e.g., "0x323030392d31322d31322028426c6f636b3a20383529")
+ * @param nftId - NFT ID to include in the hash for uniqueness
+ * @returns Valid EVM contract address (0x + 40 hex characters)
+ */
+export function formatFilingDateAsContractAddress(filingDateHex: string, nftId: string | number): Address {
+  // Ensure filing date has 0x prefix
+  const normalizedFilingDate = filingDateHex.startsWith('0x') ? filingDateHex : `0x${filingDateHex}`;
+  
+  // Convert NFT ID string to bytes (without size constraint)
+  // NFT ID can be a number or a Substrate address string
+  const nftIdString = nftId.toString();
+  // Convert string to bytes using Buffer (Node.js) or TextEncoder
+  const nftIdBytes = typeof Buffer !== 'undefined' 
+    ? new Uint8Array(Buffer.from(nftIdString, 'utf8'))
+    : new TextEncoder().encode(nftIdString);
+  
+  // Get filing date bytes
+  const filingDateBytes = hexToBytes(normalizedFilingDate as `0x${string}`);
+  
+  // Concatenate filing date bytes with NFT ID bytes
+  const combinedBytes = concat([filingDateBytes, nftIdBytes]);
+  
+  // Convert back to hex for hashing
+  const combinedHex = toHex(combinedBytes);
+  
+  // Hash using Keccak256
+  const hash = keccak256(combinedHex);
+  
+  // Take first 40 characters (20 bytes) after 0x prefix
+  // This gives us a valid EVM address format (0x + 40 hex chars = 42 total)
+  const address = `0x${hash.slice(2, 42)}` as Address;
+  
+  return address;
 }
