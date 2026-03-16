@@ -213,14 +213,16 @@ export async function getYakoaInfringementStatus(id: string) {
     
     // Determine displaySummary based on result and infringement count
     // Priority: not_checked (scan pending) > infringements_found > clean > not_registered
-    let displaySummary: 'clean' | 'infringements_found' | 'not_registered';
+    let displaySummary: 'clean' | 'infringements_found' | 'not_registered' | 'scan_pending';
     const result = tokenData.infringements?.result || 'unknown';
     
     if (result === 'not_checked') {
       // Registered but scan pending - this is a special state
-      displaySummary = totalInfringements > 0 ? 'infringements_found' as const : 'clean' as const;
-      // Note: We keep displaySummary as 'clean' or 'infringements_found' but the frontend
-      // will check result === 'not_checked' to show "Scan Pending" badge
+      if (totalInfringements > 0) {
+        displaySummary = 'infringements_found' as const;
+      } else {
+        displaySummary = 'scan_pending' as const;
+      }
     } else if (totalInfringements > 0) {
       displaySummary = 'infringements_found' as const;
     } else {

@@ -177,9 +177,11 @@ async function getYakoaInfringementStatus(id) {
         
         if (result === 'not_checked') {
             // Registered but scan pending - this is a special state
-            displaySummary = totalInfringements > 0 ? 'infringements_found' : 'clean';
-            // Note: We keep displaySummary as 'clean' or 'infringements_found' but the frontend
-            // will check result === 'not_checked' to show "Scan Pending" badge
+            if (totalInfringements > 0) {
+                displaySummary = 'infringements_found';
+            } else {
+                displaySummary = 'scan_pending';
+            }
         } else if (totalInfringements > 0) {
             displaySummary = 'infringements_found';
         } else {

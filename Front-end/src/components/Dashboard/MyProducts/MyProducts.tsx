@@ -312,8 +312,26 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
               storeNFTMetadata(nftWithoutMetadata, pendingMetadataUrl);
               metadataUrls[nftWithoutMetadata] = pendingMetadataUrl;
             } else {
-              // Keep it as pending if all NFTs already have metadata
-              storePendingMetadata(pendingMetadataUrl, selectedAccount?.address);
+              // All NFTs already have metadata, but we have new pending metadata
+              // This likely means the user uploaded new images for an existing NFT
+              // Update the most recent NFT (highest ID) with the new metadata URL
+              // This assumes the user is working on the most recently minted NFT
+              const sortedNftIds = [...nftIds].sort((a, b) => {
+                const numA = parseInt(a.toString());
+                const numB = parseInt(b.toString());
+                return numB - numA; // Sort descending (most recent first)
+              });
+              const mostRecentNftId = sortedNftIds[0];
+              if (mostRecentNftId) {
+                console.log(`Updating metadata URL for most recent NFT ${mostRecentNftId} with new pending metadata`);
+                console.log(`Old metadata URL: ${metadataUrls[mostRecentNftId]}`);
+                console.log(`New metadata URL: ${pendingMetadataUrl}`);
+                storeNFTMetadata(mostRecentNftId, pendingMetadataUrl);
+                metadataUrls[mostRecentNftId] = pendingMetadataUrl;
+              } else {
+                // Fallback: keep it as pending if we can't determine which NFT to update
+                storePendingMetadata(pendingMetadataUrl, selectedAccount?.address);
+              }
             }
           }
           
@@ -333,6 +351,9 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
                 console.log(`Fetching metadata for NFT ${asset.id} from:`, metadataUrl);
                 const metadata = await fetchNFTMetadata(metadataUrl);
                 console.log(`Metadata for NFT ${asset.id}:`, metadata);
+                if (metadata?.image) {
+                  console.log(`Found ${Array.isArray(metadata.image) ? metadata.image.length : 1} image(s) for NFT ${asset.id}:`, metadata.image);
+                }
                 
                 // Handle different metadata structures
                 let imageUrl: string | undefined;
@@ -340,9 +361,11 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
                 
                 if (metadata) {
                   // Try different possible field names and structures
+                  // Use the LAST image in the array (most recently uploaded) instead of the first
                   if (metadata.image) {
                     if (Array.isArray(metadata.image) && metadata.image.length > 0) {
-                      imageUrl = metadata.image[0];
+                      // Use the last image (most recent) instead of the first
+                      imageUrl = metadata.image[metadata.image.length - 1];
                       allImageUrls = metadata.image;
                     } else if (typeof metadata.image === 'string' && metadata.image.length > 0) {
                       imageUrl = metadata.image;
@@ -350,11 +373,13 @@ export default function MyProducts({ onDataChange }: MyProductsProps) {
                     }
                   } else if ((metadata as any).imageUrls && Array.isArray((metadata as any).imageUrls) && (metadata as any).imageUrls.length > 0) {
                     // Handle case where images are stored as imageUrls
-                    imageUrl = (metadata as any).imageUrls[0];
+                    // Use the last image (most recent) instead of the first
+                    imageUrl = (metadata as any).imageUrls[(metadata as any).imageUrls.length - 1];
                     allImageUrls = (metadata as any).imageUrls;
                   } else if ((metadata as any).images && Array.isArray((metadata as any).images) && (metadata as any).images.length > 0) {
                     // Handle case where images are stored as images
-                    imageUrl = (metadata as any).images[0];
+                    // Use the last image (most recent) instead of the first
+                    imageUrl = (metadata as any).images[(metadata as any).images.length - 1];
                     allImageUrls = (metadata as any).images;
                   }
                 }

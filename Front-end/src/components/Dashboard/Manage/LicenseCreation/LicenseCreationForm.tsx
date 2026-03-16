@@ -262,7 +262,7 @@ export function LicenseCreationForm({
                 >
                   <div className="text-left ">
                     <TypesComponent
-                      text="Recurring Payment"
+                      text="Periodic Payment"
                       className="font-semibold"
                     />
                     <p className="text-sm opacity-70">

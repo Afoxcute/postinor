@@ -21,11 +21,22 @@ interface PendingMetadata {
 
 /**
  * Store metadata URL for an NFT
+ * If a metadata URL already exists for this NFT, it will be replaced with the new one
+ * (ensuring we always use the most recent metadata)
  */
 export const storeNFTMetadata = (nftId: string, metadataUrl: string): void => {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
     const metadataMap: NFTMetadataMap = stored ? JSON.parse(stored) : {};
+    
+    const existingEntry = metadataMap[nftId];
+    if (existingEntry && existingEntry.metadataUrl !== metadataUrl) {
+      console.log(`Updating metadata URL for NFT ${nftId}:`, {
+        old: existingEntry.metadataUrl,
+        new: metadataUrl,
+        oldTimestamp: new Date(existingEntry.timestamp).toISOString(),
+      });
+    }
     
     metadataMap[nftId] = {
       metadataUrl,
